@@ -1,0 +1,40 @@
+{
+  "name": "dataiku-dss-copilot",
+  "version": "1.0.0",
+  "description": "Codex plugin for inspecting, auditing, debugging and improving Dataiku DSS projects.",
+  "author": "Lucien Lachaud",
+  "license": "Apache-2.0",
+  "keywords": [
+    "dataiku",
+    "dss",
+    "codex",
+    "mcp",
+    "rag",
+    "mlops"
+  ],
+  "skills": [
+    "./skills/dataiku-project-auditor",
+    "./skills/dataiku-managed-folder-debugger",
+    "./skills/dataiku-rag-pipeline-auditor",
+    "./skills/dataiku-recipe-reviewer",
+    "./skills/dataiku-flow-architect",
+    "./skills/dataiku-scenario-debugger",
+    "./skills/dataiku-code-env-doctor"
+  ],
+  "mcpServers": "./mcp/dataiku.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Dataiku DSS Copilot",
+    "shortDescription": "Inspect, audit and debug Dataiku DSS projects from Codex.",
+    "longDescription": "A Codex plugin that connects to Dataiku DSS through MCP and provides expert skills for Flow analysis, recipe debugging, Managed Folder inspection, RAG pipeline auditing and documentation generation.",
+    "developerName": "Lucien Lachaud",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Dataiku DSS",
+      "MCP",
+      "RAG",
+      "MLOps",
+      "Project Audit"
+    ]
+  }
+}

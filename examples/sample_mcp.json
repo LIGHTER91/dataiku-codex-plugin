@@ -1,0 +1,15 @@
+{
+  "mcp_servers": {
+    "dataiku-dss": {
+      "command": "dataiku-codex-mcp",
+      "args": [
+        "--stdio"
+      ],
+      "env": {
+        "DATAIKU_DSS_URL": "${DATAIKU_DSS_URL}",
+        "DATAIKU_API_KEY": "${DATAIKU_API_KEY}",
+        "DATAIKU_MODE": "readonly"
+      }
+    }
+  }
+}
