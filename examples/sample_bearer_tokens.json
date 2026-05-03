@@ -1,0 +1,18 @@
+[
+  {
+    "token": "replace-me-with-a-long-random-secret",
+    "subject": "alice@example.com",
+    "client_id": "alice-cli",
+    "roles": [
+      "reader",
+      "writer"
+    ],
+    "teams": [
+      "data-platform"
+    ],
+    "scopes": [
+      "mcp:read",
+      "mcp:write"
+    ]
+  }
+]

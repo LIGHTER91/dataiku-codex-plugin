@@ -1,0 +1,17 @@
+{
+  "mcp_servers": {
+    "dataiku-dss": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "./scripts/run-stdio.ps1"
+      ],
+      "cwd": ".",
+      "transport": "stdio",
+      "description": "Launch the local Dataiku DSS Copilot MCP server from the repository virtual environment."
+    }
+  }
+}

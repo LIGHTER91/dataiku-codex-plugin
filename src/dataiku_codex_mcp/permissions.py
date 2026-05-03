@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from dataiku_codex_mcp.config import AppSettings, OperationMode
 from dataiku_codex_mcp.errors import PermissionDeniedError
+from dataiku_codex_mcp.identity import IdentityResolver
+
+if TYPE_CHECKING:
+    from dataiku_codex_mcp.policy import PolicyEngine
 
 
 class PermissionLevel(str, Enum):
@@ -21,8 +26,20 @@ class PermissionLevel(str, Enum):
 class PermissionGuard:
     """Enforce mode, allowlist and approval rules."""
 
-    def __init__(self, settings: AppSettings) -> None:
+    def __init__(
+        self,
+        settings: AppSettings,
+        *,
+        identity_resolver: IdentityResolver | None = None,
+        policy_engine: PolicyEngine | None = None,
+    ) -> None:
         self.settings = settings
+        self.identity_resolver = identity_resolver or IdentityResolver(settings)
+        if policy_engine is None:
+            from dataiku_codex_mcp.policy import PolicyEngine as ResolvedPolicyEngine
+
+            policy_engine = ResolvedPolicyEngine(settings)
+        self.policy_engine = policy_engine
 
     def require(
         self,
@@ -35,6 +52,7 @@ class PermissionGuard:
         enforce_approval: bool = True,
     ) -> None:
         normalized_level = PermissionLevel(level)
+        actor = self.identity_resolver.current_actor()
 
         if self.settings.tool_allowlist and tool_name not in self.settings.tool_allowlist:
             raise PermissionDeniedError(
@@ -66,6 +84,25 @@ class PermissionGuard:
                     "Remove the project from DATAIKU_PROJECT_BLOCKLIST if access "
                     "is intended."
                 ),
+            )
+
+        decision = self.policy_engine.authorize(
+            actor=actor,
+            tool_name=tool_name,
+            level=normalized_level,
+            project_key=project_key,
+            mode=self.settings.mode.value,
+        )
+        if not decision.allowed:
+            raise PermissionDeniedError(
+                f"The tool {tool_name} is blocked by the configured access policy.",
+                details={
+                    "tool_name": tool_name,
+                    "project_key": project_key,
+                    "actor": actor.public(),
+                    "policy": decision.to_dict(),
+                },
+                suggested_fix=decision.reason,
             )
 
         if normalized_level is PermissionLevel.READ:

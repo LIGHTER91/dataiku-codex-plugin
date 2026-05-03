@@ -1,0 +1,20 @@
+{
+  "name": "local-workspace-plugins",
+  "interface": {
+    "displayName": "Local Workspace Plugins"
+  },
+  "plugins": [
+    {
+      "name": "dataiku-dss-copilot",
+      "source": {
+        "source": "local",
+        "path": "./plugins/dataiku-dss-copilot"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Coding"
+    }
+  ]
+}

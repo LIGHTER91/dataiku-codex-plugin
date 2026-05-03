@@ -14,10 +14,13 @@ from dataiku_codex_mcp.audit import AuditLogger
 from dataiku_codex_mcp.client import DataikuDSSAdapter
 from dataiku_codex_mcp.config import AppSettings, load_settings
 from dataiku_codex_mcp.errors import ConfigurationError, normalize_exception
+from dataiku_codex_mcp.identity import IdentityResolver
 from dataiku_codex_mcp.logging_utils import get_logger
 from dataiku_codex_mcp.models.common import ok
 from dataiku_codex_mcp.permissions import PermissionGuard
+from dataiku_codex_mcp.policy import PolicyEngine
 from dataiku_codex_mcp.redaction import Redactor
+from dataiku_codex_mcp.remote_auth import build_auth_provider
 from dataiku_codex_mcp.tools import (
     code_envs,
     datasets,
@@ -72,6 +75,8 @@ class AppContext:
 
     settings: AppSettings
     dataiku: DataikuDSSAdapter
+    identity: IdentityResolver
+    policy: PolicyEngine
     permissions: PermissionGuard
     redactor: Redactor
     audit: AuditLogger
@@ -88,11 +93,24 @@ def build_app_context(
     logger = get_logger(debug=resolved_settings.debug)
     redactor = Redactor(enabled=resolved_settings.redact_secrets)
     adapter = dataiku or DataikuDSSAdapter(resolved_settings)
-    permissions = PermissionGuard(resolved_settings)
-    audit = AuditLogger(logger)
+    identity = IdentityResolver(resolved_settings)
+    policy = PolicyEngine(resolved_settings)
+    permissions = PermissionGuard(
+        resolved_settings,
+        identity_resolver=identity,
+        policy_engine=policy,
+    )
+    audit = AuditLogger(
+        logger,
+        identity_resolver=identity,
+        policy_engine=policy,
+        audit_log_path=resolved_settings.audit_log_path,
+    )
     return AppContext(
         settings=resolved_settings,
         dataiku=adapter,
+        identity=identity,
+        policy=policy,
         permissions=permissions,
         redactor=redactor,
         audit=audit,
@@ -127,7 +145,7 @@ def create_mcp_server(ctx: AppContext) -> Any:
             suggested_fix='Install dependencies with `pip install -e ".[dev]"`.',
         ) from exc
 
-    server = FastMCP("Dataiku DSS Copilot")
+    server = FastMCP("Dataiku DSS Copilot", auth=build_auth_provider(ctx.settings))
     registry = build_tool_registry(ctx)
     for tool in registry.items():
         tool.handler.__name__ = tool.name
@@ -144,6 +162,24 @@ def run_stdio_server(ctx: AppContext) -> None:
         server.run(transport="stdio")
     except TypeError:
         server.run()
+
+
+def run_http_server(
+    ctx: AppContext,
+    *,
+    host: str | None = None,
+    port: int | None = None,
+    path: str | None = None,
+) -> None:
+    """Run the MCP server over Streamable HTTP transport."""
+
+    server = create_mcp_server(ctx)
+    server.run(
+        transport="streamable-http",
+        host=host or ctx.settings.http_host,
+        port=port or ctx.settings.http_port,
+        path=path or ctx.settings.http_path,
+    )
 
 
 def _dump_json(payload: dict[str, Any]) -> None:
@@ -230,6 +266,26 @@ def _run_list_tools(args: argparse.Namespace) -> dict[str, Any]:
     return ok(
         {"tools": registry.names()},
         metadata={"command": "list-tools", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_serve_http(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    run_http_server(
+        ctx,
+        host=args.host,
+        port=args.port,
+        path=args.path,
+    )
+    return ok(
+        {
+            "transport": "http",
+            "host": args.host or ctx.settings.http_host,
+            "port": args.port or ctx.settings.http_port,
+            "path": args.path or ctx.settings.http_path,
+        },
+        metadata={"command": "serve-http", "mode": ctx.settings.mode.value},
     )
 
 
@@ -674,6 +730,10 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("validate-config")
     subparsers.add_parser("ping")
     subparsers.add_parser("list-tools")
+    serve_http_parser = subparsers.add_parser("serve-http")
+    serve_http_parser.add_argument("--host", default=None)
+    serve_http_parser.add_argument("--port", type=int, default=None)
+    serve_http_parser.add_argument("--path", default=None)
     list_projects_parser = subparsers.add_parser("list-projects")
     list_projects_parser.add_argument("--include-archived", action="store_true")
     project_summary_parser = subparsers.add_parser("project-summary")
@@ -832,6 +892,7 @@ def main(argv: list[str] | None = None) -> int:
             "validate-config": _run_validate_config,
             "ping": _run_ping,
             "list-tools": _run_list_tools,
+            "serve-http": _run_serve_http,
             "list-projects": _run_list_projects,
             "project-summary": _run_project_summary,
             "list-datasets": _run_list_datasets,

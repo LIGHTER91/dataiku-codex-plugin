@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,28 @@ class OperationMode(str, Enum):
     WRITE = "write"
     EXECUTE = "execute"
     ADMIN = "admin"
+
+
+class ServerTransport(str, Enum):
+    """Supported MCP transports."""
+
+    STDIO = "stdio"
+    HTTP = "http"
+
+
+class RemoteAuthMode(str, Enum):
+    """Authentication modes for remote MCP transport."""
+
+    NONE = "none"
+    BEARER = "bearer"
+    JWT = "jwt"
+
+
+class PolicyDefaultDecision(str, Enum):
+    """Fallback policy decision when no rule matches."""
+
+    ALLOW = "allow"
+    DENY = "deny"
 
 
 _ENV_FIELD_MAP = {
@@ -37,6 +60,30 @@ _ENV_FIELD_MAP = {
     "DATAIKU_ENABLE_WRITE_TOOLS": "enable_write_tools",
     "DATAIKU_ENABLE_EXECUTE_TOOLS": "enable_execute_tools",
     "DATAIKU_ENABLE_ADMIN_TOOLS": "enable_admin_tools",
+    "DATAIKU_TRANSPORT": "transport",
+    "DATAIKU_HTTP_HOST": "http_host",
+    "DATAIKU_HTTP_PORT": "http_port",
+    "DATAIKU_HTTP_PATH": "http_path",
+    "DATAIKU_PUBLIC_BASE_URL": "public_base_url",
+    "DATAIKU_REMOTE_AUTH_MODE": "remote_auth_mode",
+    "DATAIKU_AUTH_REQUIRED_SCOPES": "auth_required_scopes",
+    "DATAIKU_AUTH_SUBJECT_CLAIM": "auth_subject_claim",
+    "DATAIKU_AUTH_ROLE_CLAIM": "auth_role_claim",
+    "DATAIKU_AUTH_TEAM_CLAIM": "auth_team_claim",
+    "DATAIKU_BEARER_TOKENS_JSON": "bearer_tokens_json",
+    "DATAIKU_BEARER_TOKENS_FILE": "bearer_tokens_file",
+    "DATAIKU_JWT_PUBLIC_KEY": "jwt_public_key",
+    "DATAIKU_JWT_JWKS_URI": "jwt_jwks_uri",
+    "DATAIKU_JWT_ISSUER": "jwt_issuer",
+    "DATAIKU_JWT_AUDIENCE": "jwt_audience",
+    "DATAIKU_JWT_ALGORITHM": "jwt_algorithm",
+    "DATAIKU_TEAM_ALLOWLIST": "team_allowlist",
+    "DATAIKU_POLICY_JSON": "policy_json",
+    "DATAIKU_POLICY_FILE": "policy_file",
+    "DATAIKU_POLICY_DEFAULT_DECISION": "policy_default_decision",
+    "DATAIKU_LOCAL_ACTOR_SUBJECT": "local_actor_subject",
+    "DATAIKU_LOCAL_ACTOR_ROLES": "local_actor_roles",
+    "DATAIKU_AUDIT_LOG_PATH": "audit_log_path",
     "DATAIKU_DEBUG": "debug",
 }
 
@@ -83,6 +130,20 @@ def _parse_optional_int(value: Any, *, default: int) -> int:
     return parsed
 
 
+def _parse_optional_json(value: Any) -> Any:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(str(value))
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError(
+            f"Invalid JSON value: {value!r}.",
+            suggested_fix="Provide valid JSON text for structured security settings.",
+        ) from exc
+
+
 def _read_dotenv_file(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
@@ -116,6 +177,30 @@ class AppSettings(BaseModel):
     enable_write_tools: bool = False
     enable_execute_tools: bool = False
     enable_admin_tools: bool = False
+    transport: ServerTransport = ServerTransport.STDIO
+    http_host: str = "127.0.0.1"
+    http_port: int = 8000
+    http_path: str = "/mcp"
+    public_base_url: str | None = None
+    remote_auth_mode: RemoteAuthMode = RemoteAuthMode.NONE
+    auth_required_scopes: tuple[str, ...] = Field(default_factory=tuple)
+    auth_subject_claim: str = "sub"
+    auth_role_claim: str = "roles"
+    auth_team_claim: str = "teams"
+    bearer_tokens_json: list[dict[str, Any]] | None = None
+    bearer_tokens_file: str | None = None
+    jwt_public_key: str | None = None
+    jwt_jwks_uri: str | None = None
+    jwt_issuer: str | tuple[str, ...] | None = None
+    jwt_audience: str | tuple[str, ...] | None = None
+    jwt_algorithm: str | None = None
+    team_allowlist: tuple[str, ...] = Field(default_factory=tuple)
+    policy_json: dict[str, Any] | None = None
+    policy_file: str | None = None
+    policy_default_decision: PolicyDefaultDecision = PolicyDefaultDecision.ALLOW
+    local_actor_subject: str = "local-cli"
+    local_actor_roles: tuple[str, ...] = ("local_operator",)
+    audit_log_path: str | None = None
     debug: bool = False
 
     @property
@@ -127,6 +212,13 @@ class AppSettings(BaseModel):
 
         data = self.model_dump(mode="json")
         data["api_key"] = "[REDACTED]"
+        if data.get("bearer_tokens_json") is not None:
+            data["bearer_tokens_json"] = "[REDACTED]"
+        data["bearer_tokens_configured"] = bool(
+            self.bearer_tokens_json or self.bearer_tokens_file
+        )
+        if data.get("jwt_public_key") is not None:
+            data["jwt_public_key"] = "[CONFIGURED]"
         return data
 
 
@@ -187,13 +279,55 @@ def load_settings(
     payload["enable_admin_tools"] = _parse_bool(
         payload.get("enable_admin_tools"), default=False
     )
+    payload["transport"] = payload.get("transport", ServerTransport.STDIO.value)
+    payload["http_port"] = _parse_optional_int(payload.get("http_port"), default=8000)
+    payload["http_path"] = str(payload.get("http_path") or "/mcp").strip() or "/mcp"
+    if not str(payload["http_path"]).startswith("/"):
+        payload["http_path"] = f"/{payload['http_path']}"
+    payload["remote_auth_mode"] = payload.get("remote_auth_mode", RemoteAuthMode.NONE.value)
+    payload["auth_required_scopes"] = _parse_csv_list(payload.get("auth_required_scopes"))
+    payload["team_allowlist"] = _parse_csv_list(payload.get("team_allowlist"))
+    payload["local_actor_roles"] = _parse_csv_list(payload.get("local_actor_roles")) or (
+        "local_operator",
+    )
+    payload["policy_default_decision"] = payload.get(
+        "policy_default_decision", PolicyDefaultDecision.ALLOW.value
+    )
+    payload["bearer_tokens_json"] = _parse_optional_json(payload.get("bearer_tokens_json"))
+    payload["policy_json"] = _parse_optional_json(payload.get("policy_json"))
+    if isinstance(payload.get("jwt_issuer"), str) and "," in str(payload["jwt_issuer"]):
+        payload["jwt_issuer"] = _parse_csv_list(payload["jwt_issuer"])
+    if isinstance(payload.get("jwt_audience"), str) and "," in str(payload["jwt_audience"]):
+        payload["jwt_audience"] = _parse_csv_list(payload["jwt_audience"])
     payload["debug"] = _parse_bool(payload.get("debug"), default=False)
 
     try:
-        return AppSettings.model_validate(payload)
+        settings = AppSettings.model_validate(payload)
     except ValidationError as exc:
         raise ConfigurationError(
             "Invalid configuration values.",
             details={"errors": exc.errors(include_url=False)},
             suggested_fix="Fix the invalid environment values and rerun validate-config.",
         ) from exc
+
+    if settings.remote_auth_mode is RemoteAuthMode.BEARER and not (
+        settings.bearer_tokens_json or settings.bearer_tokens_file
+    ):
+        raise ConfigurationError(
+            "Bearer authentication requires configured tokens.",
+            suggested_fix=(
+                "Set DATAIKU_BEARER_TOKENS_JSON or DATAIKU_BEARER_TOKENS_FILE when "
+                "DATAIKU_REMOTE_AUTH_MODE=bearer."
+            ),
+        )
+    if settings.remote_auth_mode is RemoteAuthMode.JWT and not (
+        settings.jwt_public_key or settings.jwt_jwks_uri
+    ):
+        raise ConfigurationError(
+            "JWT authentication requires a public key or JWKS URI.",
+            suggested_fix=(
+                "Set DATAIKU_JWT_PUBLIC_KEY or DATAIKU_JWT_JWKS_URI when "
+                "DATAIKU_REMOTE_AUTH_MODE=jwt."
+            ),
+        )
+    return settings

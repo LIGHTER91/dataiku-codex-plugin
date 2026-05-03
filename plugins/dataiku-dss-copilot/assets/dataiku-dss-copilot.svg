@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title>Dataiku DSS Copilot</title>
+  <desc>Orange and charcoal icon representing Dataiku flow nodes with a Codex-style command prompt.</desc>
+  <rect width="128" height="128" rx="24" fill="#161616"/>
+  <circle cx="36" cy="38" r="14" fill="#F26A21"/>
+  <circle cx="92" cy="38" r="14" fill="#F26A21"/>
+  <circle cx="64" cy="88" r="16" fill="#F7F3EE"/>
+  <path d="M48 80L41 73l7-7" stroke="#161616" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M58 95h20" stroke="#161616" stroke-width="7" stroke-linecap="round"/>
+  <path d="M36 52v10c0 8 7 14 15 14h13" stroke="#F26A21" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <path d="M92 52v10c0 8-7 14-15 14H64" stroke="#F26A21" stroke-width="7" stroke-linecap="round" fill="none"/>

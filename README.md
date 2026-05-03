@@ -24,6 +24,11 @@ Implemented capability areas:
 - documentation generation
 - controlled write tools for recipes, folders and project docs
 - controlled execute tools for scenario runs
+- remote Streamable HTTP serving
+- bearer or JWT-backed remote authentication
+- config-driven policy rules, team allowlists and per-tool RBAC
+- JSONL audit logging
+- GitHub Actions CI for tests, lint, type-checks and packaging
 
 ## Safety model
 
@@ -44,7 +49,11 @@ DATAIKU_ENABLE_EXECUTE_TOOLS=false
 DATAIKU_ENABLE_ADMIN_TOOLS=false
 ```
 
-See [examples/sample_env.example](examples/sample_env.example) for the full configuration template.
+For remote hardening, the repository also includes:
+
+- [examples/sample_env.example](examples/sample_env.example)
+- [examples/sample_policy.json](examples/sample_policy.json)
+- [examples/sample_bearer_tokens.json](examples/sample_bearer_tokens.json)
 
 ## Quick start
 
@@ -68,6 +77,12 @@ Run the MCP server over STDIO:
 
 ```powershell
 .\.venv\Scripts\dataiku-codex-mcp --env-file .env --stdio
+```
+
+Run the MCP server over HTTP:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env serve-http --host 127.0.0.1 --port 8000 --path /mcp
 ```
 
 ## Real DSS validation
@@ -95,6 +110,37 @@ This repository can be treated in two ways:
 1. As a Codex plugin bundle rooted at `plugin.json`
 2. As a Python package providing the `dataiku-codex-mcp` CLI
 
+## Codex UI native plugin
+
+The repository now also includes a native Codex UI plugin bundle in the format expected by local plugin marketplaces:
+
+- [plugins/dataiku-dss-copilot/.codex-plugin/plugin.json](plugins/dataiku-dss-copilot/.codex-plugin/plugin.json)
+- [plugins/dataiku-dss-copilot/.mcp.json](plugins/dataiku-dss-copilot/.mcp.json)
+- [.agents/plugins/marketplace.json](.agents/plugins/marketplace.json)
+
+The bundle launches the repository virtualenv through:
+
+- [plugins/dataiku-dss-copilot/scripts/run-stdio.ps1](plugins/dataiku-dss-copilot/scripts/run-stdio.ps1)
+- [plugins/dataiku-dss-copilot/scripts/run-http.ps1](plugins/dataiku-dss-copilot/scripts/run-http.ps1)
+
+To use it from this workspace, keep the repo as-is and make sure the virtualenv is installed:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -e ".[dev]"
+```
+
+Codex can then discover the plugin from the repo-local marketplace file:
+
+- [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json)
+
+If you want a home-local installation instead, copy:
+
+- `plugins/dataiku-dss-copilot` to `~/plugins/dataiku-dss-copilot`
+- `.agents/plugins/marketplace.json` entry to `~/.agents/plugins/marketplace.json`
+
+The wrapper scripts read the repo root `.env` by default. Set `DATAIKU_CODEX_ENV_FILE` to point at another env file if needed. Set `DATAIKU_CODEX_REPO_ROOT` if you want a home-local plugin install to target a different checkout of this repository.
+
 To build Python distribution artifacts:
 
 ```powershell
@@ -102,6 +148,15 @@ To build Python distribution artifacts:
 ```
 
 The source distribution manifest is defined in [MANIFEST.in](MANIFEST.in).
+
+## CI
+
+GitHub Actions CI is defined in [.github/workflows/ci.yml](.github/workflows/ci.yml) and runs:
+
+- `pytest -q`
+- `ruff check .`
+- `mypy src`
+- `python -m build`
 
 ## Repository map
 

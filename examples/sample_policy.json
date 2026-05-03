@@ -1,0 +1,35 @@
+{
+  "default_decision": "allow",
+  "team_roles": {
+    "data-platform": [
+      "reader",
+      "operator"
+    ]
+  },
+  "tool_role_bindings": {
+    "dataiku_run_scenario": [
+      "operator"
+    ],
+    "dataiku_create_*": [
+      "writer"
+    ],
+    "dataiku_update_*": [
+      "writer"
+    ],
+    "dataiku_upload_*": [
+      "writer"
+    ]
+  },
+  "rules": [
+    {
+      "effect": "deny",
+      "tools": [
+        "dataiku_run_scenario"
+      ],
+      "projects": [
+        "PROD*"
+      ],
+      "reason": "Production execution must stay disabled from this MCP server."
+    }
+  ]
+}
