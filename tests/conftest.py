@@ -40,6 +40,7 @@ class FakeRecipe:
         outputs: list[str],
         code: str,
         code_env_name: str | None = None,
+        steps: list[dict[str, object]] | None = None,
     ) -> None:
         self.name = name
         self.recipe_type = recipe_type
@@ -47,6 +48,8 @@ class FakeRecipe:
         self.outputs = outputs
         self.code = code
         self.code_env_name = code_env_name
+        self.steps = list(steps or [])
+        self.built = False
 
     def get_definition(self) -> dict[str, object]:
         return {
@@ -56,11 +59,23 @@ class FakeRecipe:
             "outputs": [{"ref": value} for value in self.outputs],
         }
 
-    def get_settings(self) -> FakeRecipeSettings:
+    def get_settings(self) -> object:
+        if self.recipe_type in {"prepare", "shaker"}:
+            return FakePrepareRecipeSettings(self)
         return FakeRecipeSettings(self)
 
     def get_code(self) -> str:
         return self.code
+
+    def run(self, wait: bool = True, no_fail: bool = False) -> FakeJob:
+        del wait
+        del no_fail
+        self.built = True
+        return FakeJob(
+            job_id=f"Build_{self.outputs[0]}",
+            log_text="INFO prepare recipe completed\n",
+            status={"baseStatus": {"state": "DONE", "result": "SUCCESS"}},
+        )
 
 
 class FakeRecipeSettings:
@@ -87,6 +102,30 @@ class FakeRecipeSettings:
             "tags": list(self.tags),
             "code_env_name": self.code_env_name,
         }
+
+
+class FakePrepareRecipeSettings:
+    """Fake mutable prepare recipe settings."""
+
+    def __init__(self, recipe: FakeRecipe) -> None:
+        self._recipe = recipe
+        self.obj_payload = {"steps": recipe.steps}
+
+    @property
+    def raw_steps(self) -> list[dict[str, object]]:
+        return self.obj_payload["steps"]
+
+    def add_processor_step(self, step_type: str, params: dict[str, object]) -> None:
+        self.raw_steps.append(
+            {
+                "metaType": "PROCESSOR",
+                "type": step_type,
+                "params": dict(params),
+            }
+        )
+
+    def save(self) -> None:
+        self._recipe.steps = list(self.raw_steps)
 
 
 class FakeManagedFolder:
@@ -177,6 +216,92 @@ class FakeCodeEnv:
             "packages": self.packages,
             "known_issues": self.known_issues,
         }
+
+
+class FakeMLTaskSettings:
+    """Fake mutable ML task settings."""
+
+    def __init__(self, task: FakeMLTask) -> None:
+        self._task = task
+        self.mltask_settings = {
+            "predictionType": task.prediction_type,
+            "modeling": {
+                "xgboost": {"enabled": False},
+                "lightgbm": {"enabled": False},
+                "random_forest": {"enabled": False},
+                "logistic_regression": {"enabled": False},
+                "custom_mllib": [],
+                "custom_python": [],
+                "plugin_python": {},
+            },
+        }
+
+    def disable_all_algorithms(self) -> None:
+        for algorithm_settings in self.mltask_settings["modeling"].values():
+            if isinstance(algorithm_settings, dict) and "enabled" in algorithm_settings:
+                algorithm_settings["enabled"] = False
+
+    def set_algorithm_enabled(self, algorithm_name: str, enabled: bool) -> None:
+        if algorithm_name not in self.get_all_possible_algorithm_names():
+            raise ValueError(f"Unsupported algorithm: {algorithm_name}")
+        modeling_key = {
+            "XGBOOST_CLASSIFICATION": "xgboost",
+            "XGBOOST_REGRESSION": "xgboost",
+            "LIGHTGBM_CLASSIFICATION": "lightgbm",
+            "LIGHTGBM_REGRESSION": "lightgbm",
+            "RANDOM_FOREST_CLASSIFICATION": "random_forest",
+            "RANDOM_FOREST_REGRESSION": "random_forest",
+            "LOGISTIC_REGRESSION": "logistic_regression",
+        }[algorithm_name]
+        self.mltask_settings["modeling"][modeling_key]["enabled"] = enabled
+        self._task.enabled_algorithm = algorithm_name if enabled else None
+
+    def get_all_possible_algorithm_names(self) -> list[str]:
+        return [
+            "XGBOOST_CLASSIFICATION",
+            "XGBOOST_REGRESSION",
+            "LIGHTGBM_CLASSIFICATION",
+            "LIGHTGBM_REGRESSION",
+            "RANDOM_FOREST_CLASSIFICATION",
+            "RANDOM_FOREST_REGRESSION",
+            "LOGISTIC_REGRESSION",
+        ]
+
+    def save(self) -> None:
+        return None
+
+
+class FakeMLTask:
+    """Fake DSS Visual ML task."""
+
+    def __init__(
+        self,
+        *,
+        analysis_id: str,
+        ml_task_id: str,
+        input_dataset: str,
+        target_variable: str,
+        prediction_type: str,
+        ml_backend_type: str,
+        guess_policy: str,
+    ) -> None:
+        self.analysis_id = analysis_id
+        self.mltask_id = ml_task_id
+        self.input_dataset = input_dataset
+        self.target_variable = target_variable
+        self.prediction_type = prediction_type
+        self.ml_backend_type = ml_backend_type
+        self.guess_policy = guess_policy
+        self.enabled_algorithm: str | None = None
+
+    def wait_guess_complete(self) -> None:
+        return None
+
+    def get_settings(self) -> FakeMLTaskSettings:
+        return FakeMLTaskSettings(self)
+
+    def get_status(self) -> dict[str, object]:
+        return {"guessing": False}
 
 
 class FakeScenarioSettings:
@@ -475,6 +600,7 @@ class FakeRecipeCreator:
         self.name = name
         self.inputs: list[str] = []
         self.outputs: list[str] = []
+        self.output_connection = "filesystem_default"
 
     def with_input(
         self,
@@ -498,6 +624,32 @@ class FakeRecipeCreator:
         self.outputs.append(output_id)
         return self
 
+    def with_existing_output(self, output_id: str, append: bool = False) -> FakeRecipeCreator:
+        return self.with_output(output_id, append)
+
+    def with_new_output(
+        self,
+        output_id: str,
+        connection: str,
+        type: str | None = None,
+        format: str | None = None,
+        override_sql_schema: object | None = None,
+        partitioning_option_id: str | None = None,
+        append: bool = False,
+        object_type: str = "DATASET",
+        overwrite: bool = False,
+        **kwargs: object,
+    ) -> FakeRecipeCreator:
+        del type
+        del format
+        del override_sql_schema
+        del partitioning_option_id
+        del object_type
+        del overwrite
+        del kwargs
+        self.output_connection = connection
+        return self.with_output(output_id, append)
+
     def create(self) -> FakeRecipe:
         recipe = FakeRecipe(
             self.name,
@@ -507,6 +659,19 @@ class FakeRecipeCreator:
             "",
         )
         self.project.recipes[self.name] = recipe
+        template_columns: list[dict[str, object]] = []
+        if self.inputs:
+            first_input = self.project.datasets.get(self.inputs[0])
+            if first_input is not None:
+                template_columns = [dict(column) for column in first_input.columns]
+        for output_name in self.outputs:
+            if output_name not in self.project.datasets:
+                self.project.datasets[output_name] = FakeDataset(
+                    output_name,
+                    "Filesystem",
+                    self.output_connection,
+                    template_columns,
+                )
         return recipe
 
 
@@ -524,6 +689,10 @@ class FakeProject:
                 [
                     {"name": "order_id", "type": "bigint"},
                     {"name": "customer_email", "type": "string"},
+                    {"name": "order_amount", "type": "double"},
+                    {"name": "order_status", "type": "string"},
+                    {"name": "is_repeat_customer", "type": "boolean"},
+                    {"name": "days_since_last_order", "type": "int"},
                 ],
             ),
             "chunks": FakeDataset(
@@ -687,6 +856,7 @@ class FakeProject:
                 },
             )
         }
+        self.ml_tasks: dict[str, FakeMLTask] = {}
         self.library = FakeLibrary()
         self.wiki = FakeWiki()
 
@@ -725,6 +895,30 @@ class FakeProject:
 
     def new_recipe(self, recipe_type: str, name: str | None = None) -> FakeRecipeCreator:
         return FakeRecipeCreator(self, recipe_type, name or f"{recipe_type}_recipe")
+
+    def create_prediction_ml_task(
+        self,
+        input_dataset: str,
+        target_variable: str,
+        ml_backend_type: str = "PY_MEMORY",
+        guess_policy: str = "DEFAULT",
+        prediction_type: str | None = None,
+        wait_guess_complete: bool = True,
+    ) -> FakeMLTask:
+        del wait_guess_complete
+        analysis_id = f"analysis_{len(self.ml_tasks) + 1:03d}"
+        ml_task_id = f"prediction_{len(self.ml_tasks) + 1:03d}"
+        task = FakeMLTask(
+            analysis_id=analysis_id,
+            ml_task_id=ml_task_id,
+            input_dataset=input_dataset,
+            target_variable=target_variable,
+            prediction_type=prediction_type or "REGRESSION",
+            ml_backend_type=ml_backend_type,
+            guess_policy=guess_policy,
+        )
+        self.ml_tasks[ml_task_id] = task
+        return task
 
     def list_managed_folders(self) -> list[dict[str, object]]:
         return [
@@ -846,6 +1040,13 @@ class FakeDataikuClient:
 
     def get_project(self, project_key: str) -> FakeProject:
         return self.project_handles[project_key]
+
+    def list_connections(self) -> list[dict[str, object]]:
+        return [
+            {"name": "dataiku-managed-storage"},
+            {"name": "warehouse"},
+            {"name": "filesystem_default"},
+        ]
 
     def list_code_envs(self) -> list[dict[str, object]]:
         return [

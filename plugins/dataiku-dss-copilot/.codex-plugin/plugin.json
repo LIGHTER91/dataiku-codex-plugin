@@ -1,7 +1,7 @@
 {
   "name": "dataiku-dss-copilot",
   "version": "1.0.0",
-  "description": "Codex plugin for inspecting, auditing, debugging and improving Dataiku DSS projects.",
+  "description": "Codex plugin for auditing Dataiku DSS and launching reusable MCP commands.",
   "author": {
     "name": "Lucien Lachaud",
     "url": "https://github.com/LIGHTER91"
@@ -22,8 +22,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Dataiku DSS Copilot",
-    "shortDescription": "Inspect, audit and debug Dataiku DSS projects",
-    "longDescription": "A local Codex plugin that connects to Dataiku DSS through MCP and provides expert skills for Flow analysis, recipe debugging, Managed Folder inspection, RAG pipeline auditing and controlled project operations.",
+    "shortDescription": "Audit Dataiku and launch reusable commands",
+    "longDescription": "A local Codex plugin that audits Dataiku DSS and launches reusable MCP commands that create native visual assets before direct code edits.",
     "developerName": "Lucien Lachaud",
     "category": "Coding",
     "capabilities": [
@@ -36,7 +36,8 @@
     "defaultPrompt": [
       "Summarize my Dataiku project and explain the Flow",
       "Review a Dataiku recipe for bugs and platform risks",
-      "Audit a Dataiku RAG pipeline and generate findings"
+      "Audit a Dataiku RAG pipeline and generate findings",
+      "Set up an XGBoost flow on project X using dataset Y"
     ],
     "brandColor": "#F26A21",
     "composerIcon": "./assets/dataiku-dss-copilot.svg",

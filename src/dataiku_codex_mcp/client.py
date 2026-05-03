@@ -33,6 +33,16 @@ from dataiku_codex_mcp.analyzers.log_analysis import (
     explain_failure as analyze_failure_explanation,
 )
 from dataiku_codex_mcp.analyzers.log_analysis import summarize_logs
+from dataiku_codex_mcp.analyzers.ml_bootstrap import (
+    build_prediction_blueprint,
+    build_target_suggestions,
+    resolve_prediction_type,
+)
+from dataiku_codex_mcp.analyzers.ml_commands import (
+    get_ml_command_definition,
+    list_ml_command_definitions,
+    resolve_command_algorithm,
+)
 from dataiku_codex_mcp.analyzers.rag_audit import audit_rag_pipeline, detect_rag_pipeline
 from dataiku_codex_mcp.config import AppSettings
 from dataiku_codex_mcp.errors import (
@@ -908,6 +918,243 @@ class DataikuDSSAdapter:
             "rollback_guidance": (
                 "Delete the new recipe manually in DSS if you need to roll back this creation."
             ),
+        }
+
+    def suggest_prediction_targets(
+        self,
+        project_key: str,
+        dataset_name: str,
+        *,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        schema = self.get_dataset_schema(project_key, dataset_name)
+        return build_target_suggestions(
+            dataset_name,
+            cast(list[dict[str, Any]], schema.get("columns", [])),
+            limit=limit,
+        )
+
+    def list_ml_commands(self) -> dict[str, Any]:
+        commands = [command.to_dict() for command in list_ml_command_definitions()]
+        return {
+            "commands": commands,
+            "summary": f"Loaded {len(commands)} reusable ML command(s).",
+        }
+
+    def plan_ml_command(
+        self,
+        project_key: str,
+        dataset_name: str,
+        command_name: str,
+        *,
+        target_variable: str | None = None,
+        prepared_dataset_name: str | None = None,
+        prepare_recipe_name: str | None = None,
+        prediction_type: str | None = None,
+        ml_backend_type: str | None = None,
+        guess_policy: str | None = None,
+    ) -> dict[str, Any]:
+        return self._resolve_ml_command_plan(
+            project_key,
+            dataset_name,
+            command_name,
+            target_variable=target_variable,
+            prepared_dataset_name=prepared_dataset_name,
+            prepare_recipe_name=prepare_recipe_name,
+            prediction_type=prediction_type,
+            ml_backend_type=ml_backend_type,
+            guess_policy=guess_policy,
+        )
+
+    def preview_run_ml_command(
+        self,
+        project_key: str,
+        dataset_name: str,
+        command_name: str,
+        *,
+        target_variable: str | None = None,
+        prepared_dataset_name: str | None = None,
+        prepare_recipe_name: str | None = None,
+        prediction_type: str | None = None,
+        ml_backend_type: str | None = None,
+        guess_policy: str | None = None,
+    ) -> dict[str, Any]:
+        plan = self._resolve_ml_command_plan(
+            project_key,
+            dataset_name,
+            command_name,
+            target_variable=target_variable,
+            prepared_dataset_name=prepared_dataset_name,
+            prepare_recipe_name=prepare_recipe_name,
+            prediction_type=prediction_type,
+            ml_backend_type=ml_backend_type,
+            guess_policy=guess_policy,
+        )
+        return self._action_summary(
+            operation="run_ml_command",
+            project_key=project_key,
+            object_type="ml_command",
+            object_name=str(plan["command"]["name"]),
+            risk_level="medium",
+            rollback_possible=True,
+            exact_operation=(
+                "Run a reusable ML command that creates a standard Prepare recipe "
+                "and a Visual ML prediction task."
+            ),
+            changes={
+                "source_dataset": dataset_name,
+                "target_variable": plan["target_variable"],
+                "auto_selected_target": plan["auto_selected_target"],
+                "prediction_type": plan["prediction_type"],
+                "recommended_algorithm": plan["recommended_algorithm"],
+                "prepared_dataset_name": plan["prepared_dataset_name"],
+                "prepare_recipe_name": plan["prepare_recipe_name"],
+                "ml_backend_type": plan["ml_backend_type"],
+                "guess_policy": plan["guess_policy"],
+            },
+        )
+
+    def run_ml_command(
+        self,
+        project_key: str,
+        dataset_name: str,
+        command_name: str,
+        *,
+        target_variable: str | None = None,
+        prepared_dataset_name: str | None = None,
+        prepare_recipe_name: str | None = None,
+        prediction_type: str | None = None,
+        ml_backend_type: str | None = None,
+        guess_policy: str | None = None,
+    ) -> dict[str, Any]:
+        plan = self._resolve_ml_command_plan(
+            project_key,
+            dataset_name,
+            command_name,
+            target_variable=target_variable,
+            prepared_dataset_name=prepared_dataset_name,
+            prepare_recipe_name=prepare_recipe_name,
+            prediction_type=prediction_type,
+            ml_backend_type=ml_backend_type,
+            guess_policy=guess_policy,
+        )
+        self._validate_prediction_flow_creation(
+            project_key,
+            prepare_recipe_name=str(plan["prepare_recipe_name"]),
+            prepared_dataset_name=str(plan["prepared_dataset_name"]),
+        )
+
+        prepare_recipe_payload = self._create_prepare_recipe(
+            project_key,
+            recipe_name=str(plan["prepare_recipe_name"]),
+            input_dataset=dataset_name,
+            output_dataset=str(plan["prepared_dataset_name"]),
+        )
+        ml_task_payload = self._create_prediction_ml_task(
+            project_key,
+            input_dataset=str(plan["prepared_dataset_name"]),
+            target_variable=str(plan["target_variable"]),
+            dss_prediction_type=str(plan["dss_prediction_type"]),
+            algorithm_name=str(plan["recommended_algorithm"]),
+            ml_backend_type=str(plan["ml_backend_type"]),
+            guess_policy=str(plan["guess_policy"]),
+        )
+        return {
+            "created": True,
+            "command": plan["command"],
+            "source_dataset": dataset_name,
+            "target_variable": plan["target_variable"],
+            "auto_selected_target": plan["auto_selected_target"],
+            "prediction_type": plan["prediction_type"],
+            "prepare_recipe": prepare_recipe_payload,
+            "ml_task": ml_task_payload,
+            "rollback_guidance": (
+                "Delete the Prepare recipe and the ML analysis manually in DSS "
+                "if you need to roll back this command."
+            ),
+        }
+
+    def preview_bootstrap_xgboost_flow(
+        self,
+        project_key: str,
+        dataset_name: str,
+        target_variable: str,
+        *,
+        prepared_dataset_name: str | None = None,
+        prepare_recipe_name: str | None = None,
+        prediction_type: str | None = None,
+        ml_backend_type: str = "PY_MEMORY",
+        guess_policy: str = "DEFAULT",
+    ) -> dict[str, Any]:
+        plan = self._resolve_ml_command_plan(
+            project_key,
+            dataset_name,
+            "xgboost_prediction_flow",
+            target_variable=target_variable,
+            prepared_dataset_name=prepared_dataset_name,
+            prepare_recipe_name=prepare_recipe_name,
+            prediction_type=prediction_type,
+            ml_backend_type=ml_backend_type,
+            guess_policy=guess_policy,
+        )
+        return self._action_summary(
+            operation="bootstrap_xgboost_flow",
+            project_key=project_key,
+            object_type="ml_blueprint",
+            object_name=str(plan["analysis_label"]),
+            risk_level="medium",
+            rollback_possible=True,
+            exact_operation=(
+                "Create a Prepare recipe and a Dataiku Visual ML prediction task "
+                "configured for XGBoost."
+            ),
+            changes={
+                "source_dataset": dataset_name,
+                "target_variable": plan["target_variable"],
+                "prediction_type": plan["prediction_type"],
+                "recommended_algorithm": plan["recommended_algorithm"],
+                "prepared_dataset_name": plan["prepared_dataset_name"],
+                "prepared_dataset_exists": plan["prepared_dataset_exists"],
+                "prepare_recipe_name": plan["prepare_recipe_name"],
+                "prepare_recipe_exists": plan["prepare_recipe_exists"],
+                "target_reasoning": plan["target_reasoning"],
+                "target_warnings": plan["target_warnings"],
+                "ml_backend_type": plan["ml_backend_type"],
+                "guess_policy": plan["guess_policy"],
+            },
+        )
+
+    def bootstrap_xgboost_flow(
+        self,
+        project_key: str,
+        dataset_name: str,
+        target_variable: str,
+        *,
+        prepared_dataset_name: str | None = None,
+        prepare_recipe_name: str | None = None,
+        prediction_type: str | None = None,
+        ml_backend_type: str = "PY_MEMORY",
+        guess_policy: str = "DEFAULT",
+    ) -> dict[str, Any]:
+        payload = self.run_ml_command(
+            project_key,
+            dataset_name,
+            "xgboost_prediction_flow",
+            target_variable=target_variable,
+            prepared_dataset_name=prepared_dataset_name,
+            prepare_recipe_name=prepare_recipe_name,
+            prediction_type=prediction_type,
+            ml_backend_type=ml_backend_type,
+            guess_policy=guess_policy,
+        )
+        return {
+            "created": payload["created"],
+            "source_dataset": payload["source_dataset"],
+            "target_variable": payload["target_variable"],
+            "prediction_type": payload["prediction_type"],
+            "prepare_recipe": payload["prepare_recipe"],
+            "ml_task": payload["ml_task"],
+            "rollback_guidance": payload["rollback_guidance"],
         }
 
     def preview_create_managed_folder(
@@ -1891,6 +2138,357 @@ class DataikuDSSAdapter:
             if folder.get("folder_id")
         }
         return dataset_names | folder_ids
+
+    def _resolve_prediction_target_selection(
+        self,
+        project_key: str,
+        dataset_name: str,
+        *,
+        target_variable: str,
+        prediction_type: str | None,
+    ) -> dict[str, Any]:
+        dataset_column = self._get_dataset_column(project_key, dataset_name, target_variable)
+        try:
+            return resolve_prediction_type(dataset_column, prediction_type)
+        except ValueError as exc:
+            raise ConfigurationError(
+                str(exc),
+                suggested_fix=(
+                    "Choose a different target column, or pass an explicit prediction_type "
+                    "if you know this target should be treated differently."
+                ),
+            ) from exc
+
+    def _resolve_ml_command_plan(
+        self,
+        project_key: str,
+        dataset_name: str,
+        command_name: str,
+        *,
+        target_variable: str | None,
+        prepared_dataset_name: str | None,
+        prepare_recipe_name: str | None,
+        prediction_type: str | None,
+        ml_backend_type: str | None,
+        guess_policy: str | None,
+    ) -> dict[str, Any]:
+        try:
+            command = get_ml_command_definition(command_name)
+        except ValueError as exc:
+            raise ConfigurationError(
+                str(exc),
+                suggested_fix=(
+                    "Call list_ml_commands first, then use one of the returned "
+                    "catalog command names or aliases."
+                ),
+            ) from exc
+
+        auto_selected_target = False
+        resolved_target_variable = target_variable
+        if resolved_target_variable is None:
+            suggestions = self.suggest_prediction_targets(project_key, dataset_name, limit=1)
+            candidates = suggestions.get("candidates", [])
+            if not candidates:
+                raise ConfigurationError(
+                    "No prediction target could be auto-selected for this dataset.",
+                    suggested_fix=(
+                        "Pass target_variable explicitly, or inspect the dataset "
+                        "schema and choose a business outcome column manually."
+                    ),
+                )
+            first_candidate = candidates[0]
+            resolved_target_variable = str(first_candidate["target_variable"])
+            auto_selected_target = True
+
+        selection = self._resolve_prediction_target_selection(
+            project_key,
+            dataset_name,
+            target_variable=resolved_target_variable,
+            prediction_type=prediction_type,
+        )
+        try:
+            algorithm_name = resolve_command_algorithm(
+                command,
+                str(selection["prediction_type"]),
+            )
+        except ValueError as exc:
+            raise ConfigurationError(
+                str(exc),
+                suggested_fix=(
+                    "Choose another catalog command, or select a target whose "
+                    "prediction type is supported by this command."
+                ),
+            ) from exc
+
+        resolved_ml_backend_type = ml_backend_type or command.default_ml_backend_type
+        resolved_guess_policy = guess_policy or command.default_guess_policy
+        blueprint = build_prediction_blueprint(
+            command.name,
+            dataset_name,
+            resolved_target_variable,
+            algorithm_name=algorithm_name,
+            prepared_dataset_name=prepared_dataset_name,
+            prepare_recipe_name=prepare_recipe_name,
+        )
+        existing_recipe_names = {
+            str(recipe.get("name"))
+            for recipe in self.list_recipes(project_key)
+            if recipe.get("name")
+        }
+        existing_dataset_names = {
+            str(dataset.get("name"))
+            for dataset in self.list_datasets(project_key)
+            if dataset.get("name")
+        }
+        return {
+            "command": command.to_dict(),
+            "analysis_label": blueprint["analysis_label"],
+            "saved_model_name": blueprint["saved_model_name"],
+            "source_dataset": dataset_name,
+            "target_variable": resolved_target_variable,
+            "auto_selected_target": auto_selected_target,
+            "prediction_type": selection["prediction_type"],
+            "dss_prediction_type": selection["dss_prediction_type"],
+            "recommended_algorithm": blueprint["algorithm_name"],
+            "prepared_dataset_name": blueprint["prepared_dataset_name"],
+            "prepared_dataset_exists": (
+                blueprint["prepared_dataset_name"] in existing_dataset_names
+            ),
+            "prepare_recipe_name": blueprint["prepare_recipe_name"],
+            "prepare_recipe_exists": (
+                blueprint["prepare_recipe_name"] in existing_recipe_names
+            ),
+            "target_reasoning": selection["reasoning"],
+            "target_warnings": selection["warnings"],
+            "ml_backend_type": resolved_ml_backend_type,
+            "guess_policy": resolved_guess_policy,
+            "summary": (
+                f"Catalog command {command.name} will prepare {dataset_name}, "
+                f"predict {resolved_target_variable}, and enable "
+                f"{blueprint['algorithm_name']}."
+            ),
+        }
+
+    def _get_dataset_column(
+        self,
+        project_key: str,
+        dataset_name: str,
+        column_name: str,
+    ) -> dict[str, Any]:
+        schema = self.get_dataset_schema(project_key, dataset_name)
+        for column in cast(list[dict[str, Any]], schema.get("columns", [])):
+            if str(column.get("name")) == column_name:
+                return column
+        raise ConfigurationError(
+            f"Target column {column_name} was not found in dataset {dataset_name}.",
+            suggested_fix="Choose a target variable that exists in the dataset schema.",
+        )
+
+    def _validate_prediction_flow_creation(
+        self,
+        project_key: str,
+        *,
+        prepare_recipe_name: str,
+        prepared_dataset_name: str,
+    ) -> None:
+        existing_recipe_names = {
+            str(recipe.get("name"))
+            for recipe in self.list_recipes(project_key)
+            if recipe.get("name")
+        }
+        if prepare_recipe_name in existing_recipe_names:
+            raise ConfigurationError(
+                f"Recipe {prepare_recipe_name} already exists.",
+                suggested_fix="Provide a different prepare_recipe_name.",
+            )
+
+        existing_dataset_names = {
+            str(dataset.get("name"))
+            for dataset in self.list_datasets(project_key)
+            if dataset.get("name")
+        }
+        if prepared_dataset_name in existing_dataset_names:
+            raise ConfigurationError(
+                f"Dataset {prepared_dataset_name} already exists.",
+                suggested_fix="Provide a different prepared_dataset_name.",
+            )
+
+    def _resolve_visual_output_connection(
+        self,
+        project_key: str,
+        source_dataset: str,
+    ) -> str:
+        source_connection: str | None = None
+        for dataset in self.list_datasets(project_key):
+            if dataset.get("name") != source_dataset:
+                continue
+            connection = dataset.get("connection")
+            if isinstance(connection, str) and connection:
+                source_connection = connection
+            break
+
+        raw_connections = self._call_method(self.client, ("list_connections",), default=[])
+        available_names: list[str] = []
+        if isinstance(raw_connections, Sequence) and not isinstance(
+            raw_connections,
+            (str, bytes),
+        ):
+            for raw_connection in raw_connections:
+                normalized = self._normalize_mapping(raw_connection)
+                name = normalized.get("name")
+                if isinstance(name, str) and name and name not in available_names:
+                    available_names.append(name)
+
+        for preferred_name in (
+            "dataiku-managed-storage",
+            "filesystem_managed",
+            "filesystem_folders",
+        ):
+            if preferred_name in available_names:
+                return preferred_name
+        if source_connection:
+            return source_connection
+        return available_names[0] if available_names else "dataiku-managed-storage"
+
+    def _create_prepare_recipe(
+        self,
+        project_key: str,
+        *,
+        recipe_name: str,
+        input_dataset: str,
+        output_dataset: str,
+    ) -> dict[str, Any]:
+        project = self._get_project(project_key)
+        creator = self._call_method(project, ("new_recipe",), "prepare", recipe_name)
+        self._call_method(creator, ("with_input",), input_dataset)
+        output_connection = self._resolve_visual_output_connection(
+            project_key,
+            input_dataset,
+        )
+        if hasattr(creator, "with_new_output"):
+            self._call_method(
+                creator,
+                ("with_new_output",),
+                output_dataset,
+                output_connection,
+            )
+        else:
+            self._call_method(creator, ("with_output",), output_dataset)
+        recipe = self._call_method(creator, ("create", "build"))
+        steps_count = 0
+        settings = self._call_method(recipe, ("get_settings",), default=None)
+        if settings is not None and hasattr(settings, "save"):
+            raw_steps = getattr(settings, "raw_steps", None)
+            if isinstance(raw_steps, list):
+                steps_count = len(raw_steps)
+            try:
+                settings.save()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+        build_job = self._call_method(
+            recipe,
+            ("run",),
+            default=None,
+            wait=True,
+            no_fail=False,
+        )
+        build_job_id = self._read_attribute(build_job, "id") if build_job is not None else None
+        return {
+            "recipe_name": recipe_name,
+            "recipe_type": "prepare",
+            "input_dataset": input_dataset,
+            "output_dataset": output_dataset,
+            "output_connection": output_connection,
+            "steps_count": steps_count,
+            "materialized_output": build_job is not None,
+            "build_job_id": build_job_id,
+            "created": True,
+        }
+
+    def _create_prediction_ml_task(
+        self,
+        project_key: str,
+        *,
+        input_dataset: str,
+        target_variable: str,
+        dss_prediction_type: str,
+        algorithm_name: str,
+        ml_backend_type: str,
+        guess_policy: str,
+    ) -> dict[str, Any]:
+        project = self._get_project(project_key)
+        task = self._call_method(
+            project,
+            ("create_prediction_ml_task",),
+            input_dataset,
+            target_variable,
+            ml_backend_type,
+            guess_policy,
+            dss_prediction_type,
+            True,
+        )
+        settings = self._call_method(task, ("get_settings",), default=None)
+        if settings is None:
+            raise UnsupportedOperationError(
+                "The created ML task does not expose settings through the current API.",
+                suggested_fix=(
+                    "Open the task in DSS manually, or upgrade the Dataiku client if "
+                    "your version does not expose ML task settings."
+                ),
+            )
+        if not hasattr(settings, "disable_all_algorithms") or not hasattr(
+            settings, "set_algorithm_enabled"
+        ):
+            raise UnsupportedOperationError(
+                "The ML task settings do not support algorithm selection.",
+                suggested_fix="Use a Dataiku client version that exposes ML algorithm settings.",
+            )
+
+        all_algorithm_names: list[str] = []
+        if hasattr(settings, "get_all_possible_algorithm_names"):
+            try:
+                raw_algorithm_names = settings.get_all_possible_algorithm_names()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+            if isinstance(raw_algorithm_names, Sequence) and not isinstance(
+                raw_algorithm_names,
+                (str, bytes),
+            ):
+                all_algorithm_names = [str(name) for name in raw_algorithm_names]
+        if all_algorithm_names and algorithm_name not in all_algorithm_names:
+            raise UnsupportedOperationError(
+                f"The ML task does not expose the algorithm {algorithm_name}.",
+                suggested_fix=(
+                    "Check that XGBoost is available in the DSS instance and supported by "
+                    "the selected ML backend."
+                ),
+            )
+
+        try:
+            settings.disable_all_algorithms()
+            settings.set_algorithm_enabled(algorithm_name, True)
+            settings.save()
+        except Exception as exc:
+            raise map_exception(exc) from exc
+
+        analysis_id = self._read_attribute(task, "analysis_id")
+        if analysis_id is None:
+            analysis_id = self._read_attribute(task, "analysisId")
+        ml_task_id = self._read_attribute(task, "mltask_id")
+        if ml_task_id is None:
+            ml_task_id = self._read_attribute(task, "mlTaskId")
+
+        return {
+            "created": True,
+            "input_dataset": input_dataset,
+            "target_variable": target_variable,
+            "prediction_type": dss_prediction_type,
+            "algorithm_enabled": algorithm_name,
+            "ml_backend_type": ml_backend_type,
+            "guess_policy": guess_policy,
+            "analysis_id": analysis_id,
+            "ml_task_id": ml_task_id,
+        }
 
     def _validate_python_recipe_creation(
         self,

@@ -28,6 +28,7 @@ from dataiku_codex_mcp.tools import (
     flow,
     instance,
     managed_folders,
+    ml,
     projects,
     rag,
     recipes,
@@ -124,6 +125,7 @@ def build_tool_registry(ctx: AppContext) -> ToolRegistry:
     instance.register_tools(registry, ctx)
     projects.register_tools(registry, ctx)
     datasets.register_tools(registry, ctx)
+    ml.register_tools(registry, ctx)
     recipes.register_tools(registry, ctx)
     managed_folders.register_tools(registry, ctx)
     flow.register_tools(registry, ctx)
@@ -327,6 +329,54 @@ def _run_dataset_schema(args: argparse.Namespace) -> dict[str, Any]:
             ctx.dataiku.get_dataset_schema(args.project_key, args.dataset_name)
         ),
         metadata={"command": "dataset-schema", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_suggest_prediction_targets(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.suggest_prediction_targets(
+                args.project_key,
+                args.dataset_name,
+                limit=args.limit,
+            )
+        ),
+        metadata={
+            "command": "suggest-prediction-targets",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_list_ml_commands(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.list_ml_commands()),
+        metadata={"command": "list-ml-commands", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_plan_ml_command(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.plan_ml_command(
+                args.project_key,
+                args.dataset_name,
+                args.command_name,
+                target_variable=args.target_variable,
+                prepared_dataset_name=args.prepared_dataset_name,
+                prepare_recipe_name=args.prepare_recipe_name,
+                prediction_type=args.prediction_type,
+                ml_backend_type=args.ml_backend_type,
+                guess_policy=args.guess_policy,
+            )
+        ),
+        metadata={"command": "plan-ml-command", "mode": ctx.settings.mode.value},
     )
 
 
@@ -583,6 +633,43 @@ def _run_create_python_recipe(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _run_bootstrap_xgboost_flow(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    registry = build_tool_registry(ctx)
+    return registry.get("dataiku_bootstrap_xgboost_flow").handler(
+        args.project_key,
+        args.dataset_name,
+        args.target_variable,
+        args.prepared_dataset_name,
+        args.prepare_recipe_name,
+        args.prediction_type,
+        args.ml_backend_type,
+        args.guess_policy,
+        args.approved,
+        args.approval_reason,
+    )
+
+
+def _run_run_ml_command(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    registry = build_tool_registry(ctx)
+    return registry.get("dataiku_run_ml_command").handler(
+        args.project_key,
+        args.dataset_name,
+        args.command_name,
+        args.target_variable,
+        args.prepared_dataset_name,
+        args.prepare_recipe_name,
+        args.prediction_type,
+        args.ml_backend_type,
+        args.guess_policy,
+        args.approved,
+        args.approval_reason,
+    )
+
+
 def _run_create_managed_folder(args: argparse.Namespace) -> dict[str, Any]:
     settings = load_settings(dotenv_path=args.env_file)
     ctx = build_app_context(settings=settings)
@@ -743,6 +830,23 @@ def _build_parser() -> argparse.ArgumentParser:
     dataset_schema_parser = subparsers.add_parser("dataset-schema")
     dataset_schema_parser.add_argument("project_key")
     dataset_schema_parser.add_argument("dataset_name")
+    subparsers.add_parser("list-ml-commands")
+    suggest_prediction_targets_parser = subparsers.add_parser(
+        "suggest-prediction-targets"
+    )
+    suggest_prediction_targets_parser.add_argument("project_key")
+    suggest_prediction_targets_parser.add_argument("dataset_name")
+    suggest_prediction_targets_parser.add_argument("--limit", type=int, default=5)
+    plan_ml_command_parser = subparsers.add_parser("plan-ml-command")
+    plan_ml_command_parser.add_argument("project_key")
+    plan_ml_command_parser.add_argument("dataset_name")
+    plan_ml_command_parser.add_argument("command_name")
+    plan_ml_command_parser.add_argument("--target-variable", default=None)
+    plan_ml_command_parser.add_argument("--prepared-dataset-name", default=None)
+    plan_ml_command_parser.add_argument("--prepare-recipe-name", default=None)
+    plan_ml_command_parser.add_argument("--prediction-type", default=None)
+    plan_ml_command_parser.add_argument("--ml-backend-type", default=None)
+    plan_ml_command_parser.add_argument("--guess-policy", default=None)
     list_recipes_parser = subparsers.add_parser("list-recipes")
     list_recipes_parser.add_argument("project_key")
     recipe_details_parser = subparsers.add_parser("recipe-details")
@@ -822,6 +926,29 @@ def _build_parser() -> argparse.ArgumentParser:
     create_python_recipe_parser.add_argument("--code-file", default=None)
     create_python_recipe_parser.add_argument("--approved", action="store_true")
     create_python_recipe_parser.add_argument("--approval-reason", default=None)
+    bootstrap_xgboost_parser = subparsers.add_parser("bootstrap-xgboost-flow")
+    bootstrap_xgboost_parser.add_argument("project_key")
+    bootstrap_xgboost_parser.add_argument("dataset_name")
+    bootstrap_xgboost_parser.add_argument("target_variable")
+    bootstrap_xgboost_parser.add_argument("--prepared-dataset-name", default=None)
+    bootstrap_xgboost_parser.add_argument("--prepare-recipe-name", default=None)
+    bootstrap_xgboost_parser.add_argument("--prediction-type", default=None)
+    bootstrap_xgboost_parser.add_argument("--ml-backend-type", default="PY_MEMORY")
+    bootstrap_xgboost_parser.add_argument("--guess-policy", default="DEFAULT")
+    bootstrap_xgboost_parser.add_argument("--approved", action="store_true")
+    bootstrap_xgboost_parser.add_argument("--approval-reason", default=None)
+    run_ml_command_parser = subparsers.add_parser("run-ml-command")
+    run_ml_command_parser.add_argument("project_key")
+    run_ml_command_parser.add_argument("dataset_name")
+    run_ml_command_parser.add_argument("command_name")
+    run_ml_command_parser.add_argument("--target-variable", default=None)
+    run_ml_command_parser.add_argument("--prepared-dataset-name", default=None)
+    run_ml_command_parser.add_argument("--prepare-recipe-name", default=None)
+    run_ml_command_parser.add_argument("--prediction-type", default=None)
+    run_ml_command_parser.add_argument("--ml-backend-type", default=None)
+    run_ml_command_parser.add_argument("--guess-policy", default=None)
+    run_ml_command_parser.add_argument("--approved", action="store_true")
+    run_ml_command_parser.add_argument("--approval-reason", default=None)
     create_managed_folder_parser = subparsers.add_parser("create-managed-folder")
     create_managed_folder_parser.add_argument("project_key")
     create_managed_folder_parser.add_argument("folder_name")
@@ -897,6 +1024,9 @@ def main(argv: list[str] | None = None) -> int:
             "project-summary": _run_project_summary,
             "list-datasets": _run_list_datasets,
             "dataset-schema": _run_dataset_schema,
+            "list-ml-commands": _run_list_ml_commands,
+            "suggest-prediction-targets": _run_suggest_prediction_targets,
+            "plan-ml-command": _run_plan_ml_command,
             "list-recipes": _run_list_recipes,
             "recipe-details": _run_recipe_details,
             "list-managed-folders": _run_list_managed_folders,
@@ -917,6 +1047,8 @@ def main(argv: list[str] | None = None) -> int:
             "generate-rag-audit-report": _run_generate_rag_audit_report,
             "update-recipe-code": _run_update_recipe_code,
             "create-python-recipe": _run_create_python_recipe,
+            "bootstrap-xgboost-flow": _run_bootstrap_xgboost_flow,
+            "run-ml-command": _run_run_ml_command,
             "create-managed-folder": _run_create_managed_folder,
             "upload-file-to-folder": _run_upload_file_to_folder,
             "create-scenario": _run_create_scenario,

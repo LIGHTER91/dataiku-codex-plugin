@@ -5,10 +5,11 @@
 ```mermaid
 flowchart TD
     U[User] --> C[Codex]
-    C --> S[Codex Skills]
-    C --> MCP[MCP Server]
+    C --> UI["Plugin UI + Skills"]
+    C --> MCP["MCP Server + Command Catalog"]
     MCP --> P[Permission Guard]
-    P --> A[Dataiku API Adapter]
+    P --> R1["Command Resolver / Blueprint Engine"]
+    R1 --> A[Dataiku API Adapter]
     A --> DSS[Dataiku DSS]
     A --> R[Result Normalizer]
     R --> X[Redaction Layer]
@@ -21,18 +22,20 @@ flowchart TD
 sequenceDiagram
     participant User
     participant Codex
-    participant Skill
+    participant UI as Plugin UI
     participant MCP
     participant Guard
+    participant Resolver as Command Resolver
     participant Dataiku
     participant Redactor
 
-    User->>Codex: Ask Dataiku question
-    Codex->>Skill: Select relevant skill
+    User->>Codex: Ask for an audit or a command
+    Codex->>UI: Select skill / plugin entrypoint
     Codex->>MCP: Call tool
     MCP->>Guard: Check permission
     Guard-->>MCP: Allowed
-    MCP->>Dataiku: API call
+    MCP->>Resolver: Resolve catalog command or blueprint
+    Resolver->>Dataiku: Native Dataiku API call
     Dataiku-->>MCP: Raw result
     MCP->>Redactor: Redact output
     Redactor-->>MCP: Safe output
@@ -72,4 +75,18 @@ flowchart TD
     VectorStore --> Audit
     Retrieval --> Audit
     Generation --> Audit
+```
+
+## ML command workflow
+
+```mermaid
+flowchart TD
+    User["User intent: setup xgboost"] --> Plugin["Plugin UI / skill"]
+    Plugin --> MCP["MCP tool: run_ml_command"]
+    MCP --> Catalog["Command catalog"]
+    Catalog --> Planner["Target discovery + plan"]
+    Planner --> Prepare["Prepare recipe blueprint"]
+    Planner --> VisualML["Visual ML task blueprint"]
+    Prepare --> DSS["Dataiku DSS"]
+    VisualML --> DSS
 ```

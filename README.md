@@ -18,6 +18,9 @@ Implemented capability areas:
 - instance and project inspection
 - datasets, recipes and Managed Folders
 - Flow analysis and health checks
+- reusable ML command catalog
+- guided prediction target discovery
+- command-driven Visual ML bootstrap for XGBoost, LightGBM, Random Forest and Logistic Regression
 - code environment diagnostics
 - RAG pipeline detection and audit
 - scenario runs, job logs and failure explanation
@@ -55,6 +58,22 @@ For remote hardening, the repository also includes:
 - [examples/sample_policy.json](examples/sample_policy.json)
 - [examples/sample_bearer_tokens.json](examples/sample_bearer_tokens.json)
 
+## Product direction
+
+The preferred architecture is:
+
+- Codex plugin for UI, prompts, skills and discoverability
+- MCP server for executing standardized commands
+- Dataiku-native assets for the actual workflow mutations
+
+The preferred behavior is:
+
+- use reusable command catalog entries and blueprints whenever possible
+- avoid generating new ad-hoc setup scripts for recurring tasks
+- reserve direct code edits for narrow maintenance work such as renames, patches or recipe fixes
+- prefer Dataiku visual components such as Prepare recipes, Visual ML tasks and scenario steps over custom Python when a native component exists
+- return plans, reports and UI-visible structured outputs before raw code whenever code generation is not required
+
 ## Quick start
 
 Create a virtual environment, install the project, then validate the config:
@@ -85,6 +104,24 @@ Run the MCP server over HTTP:
 .\.venv\Scripts\dataiku-codex-mcp --env-file .env serve-http --host 127.0.0.1 --port 8000 --path /mcp
 ```
 
+List the ML command catalog:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env list-ml-commands
+```
+
+Plan a reusable ML command:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env plan-ml-command TEST flight_data xgb
+```
+
+Run a reusable ML command after approval:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env run-ml-command TEST flight_data xgb --approved --approval-reason "Bootstrap ML demo"
+```
+
 ## Real DSS validation
 
 The implementation has been exercised on a real Dataiku DSS trial instance, including:
@@ -96,6 +133,7 @@ The implementation has been exercised on a real Dataiku DSS trial instance, incl
 - Python recipe creation and update
 - recipe execution and failure diagnosis
 - custom scenario creation and execution
+- ML command catalog write-path with native Prepare recipe creation, dataset materialization and Visual ML task bootstrap
 
 This also drove compatibility fixes for real Dataiku API objects such as:
 

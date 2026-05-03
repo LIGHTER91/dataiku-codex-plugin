@@ -2,6 +2,12 @@
 
 This folder is the repo-local Codex UI plugin bundle for the Dataiku DSS Copilot project.
 
+The intended split is:
+
+- the Codex plugin handles UI, prompts and discoverability
+- the MCP server executes reusable commands
+- Dataiku native visual components are preferred over ad-hoc generated code
+
 It is designed to be discovered from:
 
 - [`.agents/plugins/marketplace.json`](../../.agents/plugins/marketplace.json)
