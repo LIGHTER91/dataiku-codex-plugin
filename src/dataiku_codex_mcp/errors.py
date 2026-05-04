@@ -53,14 +53,6 @@ class DataikuAPIError(DataikuCodexError):
     error_type: ClassVar[str] = "DataikuAPIError"
 
 
-class FileTooLargeError(DataikuCodexError):
-    error_type: ClassVar[str] = "FileTooLargeError"
-
-
-class BinaryFileError(DataikuCodexError):
-    error_type: ClassVar[str] = "BinaryFileError"
-
-
 class RedactionError(DataikuCodexError):
     error_type: ClassVar[str] = "RedactionError"
 

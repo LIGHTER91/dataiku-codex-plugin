@@ -225,6 +225,7 @@ class FakeMLTaskSettings:
         self._task = task
         self.mltask_settings = {
             "predictionType": task.prediction_type,
+            "targetVariable": task.target_variable,
             "modeling": {
                 "xgboost": {"enabled": False},
                 "lightgbm": {"enabled": False},
@@ -235,6 +236,17 @@ class FakeMLTaskSettings:
                 "plugin_python": {},
             },
         }
+        if task.enabled_algorithm is not None:
+            modeling_key = {
+                "XGBOOST_CLASSIFICATION": "xgboost",
+                "XGBOOST_REGRESSION": "xgboost",
+                "LIGHTGBM_CLASSIFICATION": "lightgbm",
+                "LIGHTGBM_REGRESSION": "lightgbm",
+                "RANDOM_FOREST_CLASSIFICATION": "random_forest",
+                "RANDOM_FOREST_REGRESSION": "random_forest",
+                "LOGISTIC_REGRESSION": "logistic_regression",
+            }[task.enabled_algorithm]
+            self.mltask_settings["modeling"][modeling_key]["enabled"] = True
 
     def disable_all_algorithms(self) -> None:
         for algorithm_settings in self.mltask_settings["modeling"].values():
@@ -270,6 +282,9 @@ class FakeMLTaskSettings:
     def save(self) -> None:
         return None
 
+    def get_raw(self) -> dict[str, object]:
+        return dict(self.mltask_settings)
+
 
 class FakeMLTask:
     """Fake DSS Visual ML task."""
@@ -293,6 +308,11 @@ class FakeMLTask:
         self.ml_backend_type = ml_backend_type
         self.guess_policy = guess_policy
         self.enabled_algorithm: str | None = None
+        self.training = False
+        self.analysis_name = f"Analysis {analysis_id}"
+        self.task_name = f"Task {ml_task_id}"
+        self.trained_models: list[dict[str, object]] = []
+        self.deployments: list[dict[str, object]] = []
 
     def wait_guess_complete(self) -> None:
         return None
@@ -301,7 +321,97 @@ class FakeMLTask:
         return FakeMLTaskSettings(self)
 
     def get_status(self) -> dict[str, object]:
-        return {"guessing": False}
+        return {
+            "guessing": False,
+            "training": self.training,
+            "fullModelIds": [
+                {
+                    "id": str(model["model_id"]),
+                    "fullModelId": {"sessionId": model["session_id"]},
+                }
+                for model in self.trained_models
+            ],
+        }
+
+    def train(
+        self,
+        session_name: str | None = None,
+        session_description: str | None = None,
+        run_queue: bool = False,
+    ) -> list[str]:
+        del session_description
+        del run_queue
+        self.training = False
+        model_id = f"model_{len(self.trained_models) + 1:03d}"
+        session_id = f"session_{len(self.trained_models) + 1:03d}"
+        self.trained_models.append(
+            {
+                "model_id": model_id,
+                "algorithm": self.enabled_algorithm or "XGBOOST_CLASSIFICATION",
+                "session_id": session_id,
+                "session_name": session_name or f"Training session {len(self.trained_models) + 1}",
+                "snippet": {
+                    "algorithm": self.enabled_algorithm or "XGBOOST_CLASSIFICATION",
+                    "sessionId": session_id,
+                    "sessionName": (
+                        session_name or f"Training session {len(self.trained_models) + 1}"
+                    ),
+                    "metrics": {"accuracy": 0.84},
+                },
+            }
+        )
+        return [model_id]
+
+    def get_trained_models_ids(
+        self,
+        session_id: str | None = None,
+        algorithm: str | None = None,
+    ) -> list[str]:
+        selected_models = list(self.trained_models)
+        if session_id is not None:
+            selected_models = [
+                model for model in selected_models if model["session_id"] == session_id
+            ]
+        if algorithm is not None:
+            selected_models = [
+                model for model in selected_models if model["algorithm"] == algorithm
+            ]
+        return [str(model["model_id"]) for model in selected_models]
+
+    def get_trained_model_snippet(
+        self,
+        id: str | None = None,
+        ids: list[str] | None = None,
+    ) -> dict[str, object]:
+        snippets = {
+            str(model["model_id"]): dict(model["snippet"])
+            for model in self.trained_models
+        }
+        if id is not None:
+            return dict(snippets[id])
+        if ids is not None:
+            return {model_id: dict(snippets[model_id]) for model_id in ids if model_id in snippets}
+        return snippets
+
+    def deploy_to_flow(
+        self,
+        model_id: str,
+        model_name: str,
+        train_dataset: str,
+        test_dataset: str | None = None,
+        redo_optimization: bool = True,
+    ) -> dict[str, object]:
+        deployment = {
+            "savedModelId": f"saved_model_{len(self.deployments) + 1:03d}",
+            "trainRecipeName": f"train_{model_name}",
+            "modelId": model_id,
+            "modelName": model_name,
+            "trainDatasetRef": train_dataset,
+            "testDatasetRef": test_dataset,
+            "redoOptimization": redo_optimization,
+        }
+        self.deployments.append(deployment)
+        return deployment
 
 
 class FakeScenarioSettings:
@@ -917,7 +1027,31 @@ class FakeProject:
             ml_backend_type=ml_backend_type,
             guess_policy=guess_policy,
         )
+        task.analysis_name = f"{target_variable} analysis"
+        task.task_name = f"Predict {target_variable}"
         self.ml_tasks[ml_task_id] = task
+        return task
+
+    def list_ml_tasks(self) -> dict[str, object]:
+        return {
+            "mlTasks": [
+                {
+                    "analysisId": task.analysis_id,
+                    "mlTaskId": task.mltask_id,
+                    "analysisName": task.analysis_name,
+                    "mlTaskName": task.task_name,
+                    "taskType": "PREDICTION",
+                    "inputDataset": task.input_dataset,
+                    "predictionType": task.prediction_type,
+                }
+                for task in self.ml_tasks.values()
+            ]
+        }
+
+    def get_ml_task(self, analysis_id: str, mltask_id: str) -> FakeMLTask:
+        task = self.ml_tasks[mltask_id]
+        if task.analysis_id != analysis_id:
+            raise ValueError(f"ML task not found: {analysis_id}/{mltask_id}")
         return task
 
     def list_managed_folders(self) -> list[dict[str, object]]:

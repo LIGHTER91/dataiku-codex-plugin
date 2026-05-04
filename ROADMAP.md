@@ -91,6 +91,31 @@
 - prefer Dataiku Visual ML tasks and Prepare recipes over custom generated setup scripts.
 - use direct code generation only for narrow maintenance work such as recipe fixes or variable renames.
 
+## Version 3.5.2 - Visual ML task lifecycle
+
+- list existing Visual ML tasks from the MCP server and CLI.
+- inspect one task with status, enabled algorithms and trained model counts.
+- train an existing Visual ML task through an approved execute command.
+- list trained models and expose their snippets without opening DSS manually.
+- deploy a trained model to the Flow through an approved write command.
+- keep the end-to-end flow command-first: bootstrap, train, inspect, deploy.
+
+## Version 3.5.3 - Scoring and evaluation lifecycle
+
+- create scoring-ready Flow assets from a deployed Visual ML model.
+- expose model comparison and best-model selection without leaving Codex.
+- generate evaluation reports and reusable validation summaries.
+- add command-first score and evaluate steps after bootstrap, train and deploy.
+- keep the workflow centered on native DSS components instead of ad-hoc Python scoring scripts.
+
+## Version 3.5.4 - Intent router for ML commands
+
+- route natural language requests such as "setup xgboost", "train latest task" or "deploy best model" to the command catalog.
+- resolve project, dataset, target and algorithm parameters with minimal user back-and-forth.
+- keep Codex focused on orchestration and clarification while the MCP server executes standardized commands.
+- reuse the same approval and dry-run model for routed commands.
+- make repeated ML setup faster than writing or rewriting custom setup code.
+
 ## Version 4.0 - Dataiku platform operations
 
 - code env update planning.

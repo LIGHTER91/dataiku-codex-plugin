@@ -24,11 +24,18 @@ This audit checks whether the plugin follows the intended product direction:
 
 - The real DSS write-path for `run-ml-command` now creates a native Prepare recipe with `with_new_output(...)`, materializes its dataset, and only then creates the Visual ML task.
 - This removes the previous dependency on an incompatible recipe creation path that failed on DSS cloud with `creationInfo` output suppression errors.
+- Two obsolete ML helpers were removed after static and manual review:
+  - `build_xgboost_blueprint`
+  - `render_ml_command_catalog`
+- Two orphaned error classes were also removed:
+  - `FileTooLargeError`
+  - `BinaryFileError`
 
 ## Residual constraints
 
 - Direct recipe code editing still exists for legitimate maintenance tasks and should remain gated by approval.
 - The ML catalog currently covers baseline prediction flows only. Time series, scoring, deployment and evaluation still belong to later roadmap steps.
+- Several lower-confidence static scan hits were intentionally kept because they belong to dynamic Dataiku adapter calls, test doubles, or public configuration surface that cannot be safely removed automatically.
 
 ## Decision
 

@@ -670,6 +670,79 @@ def _run_run_ml_command(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _run_list_ml_tasks(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact({"ml_tasks": ctx.dataiku.list_ml_tasks(args.project_key)}),
+        metadata={"command": "list-ml-tasks", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_ml_task_details(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.get_ml_task_details(
+                args.project_key,
+                args.analysis_id,
+                args.ml_task_id,
+            )
+        ),
+        metadata={"command": "ml-task-details", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_list_trained_models(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.list_trained_models(
+                args.project_key,
+                args.analysis_id,
+                args.ml_task_id,
+            )
+        ),
+        metadata={"command": "list-trained-models", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_train_ml_task(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    registry = build_tool_registry(ctx)
+    return registry.get("dataiku_train_ml_task").handler(
+        args.project_key,
+        args.analysis_id,
+        args.ml_task_id,
+        args.session_name,
+        args.session_description,
+        args.run_queue,
+        args.approved,
+        args.approval_reason,
+    )
+
+
+def _run_deploy_trained_model_to_flow(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    registry = build_tool_registry(ctx)
+    return registry.get("dataiku_deploy_trained_model_to_flow").handler(
+        args.project_key,
+        args.analysis_id,
+        args.ml_task_id,
+        args.model_id,
+        args.saved_model_name,
+        args.train_dataset,
+        args.test_dataset,
+        args.redo_optimization,
+        args.approved,
+        args.approval_reason,
+    )
+
+
 def _run_create_managed_folder(args: argparse.Namespace) -> dict[str, Any]:
     settings = load_settings(dotenv_path=args.env_file)
     ctx = build_app_context(settings=settings)
@@ -949,6 +1022,41 @@ def _build_parser() -> argparse.ArgumentParser:
     run_ml_command_parser.add_argument("--guess-policy", default=None)
     run_ml_command_parser.add_argument("--approved", action="store_true")
     run_ml_command_parser.add_argument("--approval-reason", default=None)
+    list_ml_tasks_parser = subparsers.add_parser("list-ml-tasks")
+    list_ml_tasks_parser.add_argument("project_key")
+    ml_task_details_parser = subparsers.add_parser("ml-task-details")
+    ml_task_details_parser.add_argument("project_key")
+    ml_task_details_parser.add_argument("analysis_id")
+    ml_task_details_parser.add_argument("ml_task_id")
+    list_trained_models_parser = subparsers.add_parser("list-trained-models")
+    list_trained_models_parser.add_argument("project_key")
+    list_trained_models_parser.add_argument("analysis_id")
+    list_trained_models_parser.add_argument("ml_task_id")
+    train_ml_task_parser = subparsers.add_parser("train-ml-task")
+    train_ml_task_parser.add_argument("project_key")
+    train_ml_task_parser.add_argument("analysis_id")
+    train_ml_task_parser.add_argument("ml_task_id")
+    train_ml_task_parser.add_argument("--session-name", default=None)
+    train_ml_task_parser.add_argument("--session-description", default=None)
+    train_ml_task_parser.add_argument("--run-queue", action="store_true")
+    train_ml_task_parser.add_argument("--approved", action="store_true")
+    train_ml_task_parser.add_argument("--approval-reason", default=None)
+    deploy_model_parser = subparsers.add_parser("deploy-trained-model-to-flow")
+    deploy_model_parser.add_argument("project_key")
+    deploy_model_parser.add_argument("analysis_id")
+    deploy_model_parser.add_argument("ml_task_id")
+    deploy_model_parser.add_argument("--model-id", default=None)
+    deploy_model_parser.add_argument("--saved-model-name", default=None)
+    deploy_model_parser.add_argument("--train-dataset", default=None)
+    deploy_model_parser.add_argument("--test-dataset", default=None)
+    deploy_model_parser.set_defaults(redo_optimization=True)
+    deploy_model_parser.add_argument(
+        "--no-redo-optimization",
+        dest="redo_optimization",
+        action="store_false",
+    )
+    deploy_model_parser.add_argument("--approved", action="store_true")
+    deploy_model_parser.add_argument("--approval-reason", default=None)
     create_managed_folder_parser = subparsers.add_parser("create-managed-folder")
     create_managed_folder_parser.add_argument("project_key")
     create_managed_folder_parser.add_argument("folder_name")
@@ -1049,6 +1157,11 @@ def main(argv: list[str] | None = None) -> int:
             "create-python-recipe": _run_create_python_recipe,
             "bootstrap-xgboost-flow": _run_bootstrap_xgboost_flow,
             "run-ml-command": _run_run_ml_command,
+            "list-ml-tasks": _run_list_ml_tasks,
+            "ml-task-details": _run_ml_task_details,
+            "list-trained-models": _run_list_trained_models,
+            "train-ml-task": _run_train_ml_task,
+            "deploy-trained-model-to-flow": _run_deploy_trained_model_to_flow,
             "create-managed-folder": _run_create_managed_folder,
             "upload-file-to-folder": _run_upload_file_to_folder,
             "create-scenario": _run_create_scenario,

@@ -1157,6 +1157,290 @@ class DataikuDSSAdapter:
             "rollback_guidance": payload["rollback_guidance"],
         }
 
+    def list_ml_tasks(self, project_key: str) -> list[dict[str, Any]]:
+        project = self._get_project(project_key)
+        raw_tasks = self._call_method(project, ("list_ml_tasks",), default=[])
+        task_entries: list[Any] = []
+        if isinstance(raw_tasks, Mapping):
+            nested_tasks = raw_tasks.get("mlTasks") or raw_tasks.get("tasks")
+            if isinstance(nested_tasks, Sequence) and not isinstance(
+                nested_tasks,
+                (str, bytes),
+            ):
+                task_entries = list(nested_tasks)
+        elif isinstance(raw_tasks, Sequence) and not isinstance(raw_tasks, (str, bytes)):
+            task_entries = list(raw_tasks)
+
+        normalized_tasks: list[dict[str, Any]] = []
+        for raw_task in task_entries:
+            normalized = self._normalize_ml_task_summary(raw_task)
+            if normalized.get("analysis_id") and normalized.get("ml_task_id"):
+                normalized_tasks.append(normalized)
+        return normalized_tasks
+
+    def get_ml_task_details(
+        self,
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+    ) -> dict[str, Any]:
+        task = self._get_ml_task(project_key, analysis_id, ml_task_id)
+        summary = self._find_ml_task_summary(project_key, analysis_id, ml_task_id)
+        status = self._normalize_mapping(self._call_method(task, ("get_status",), default={}))
+        settings = self._extract_ml_task_settings(
+            self._call_method(task, ("get_settings",), default={})
+        )
+        trained_model_ids = self._extract_trained_model_ids(status)
+        return {
+            **summary,
+            "status": status,
+            "enabled_algorithms": self._extract_enabled_algorithms(settings),
+            "trained_models_count": len(trained_model_ids),
+            "trained_model_ids": trained_model_ids,
+        }
+
+    def list_trained_models(
+        self,
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+        *,
+        model_ids: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        task = self._get_ml_task(project_key, analysis_id, ml_task_id)
+        summary = self._find_ml_task_summary(project_key, analysis_id, ml_task_id)
+        resolved_model_ids = (
+            [str(model_id) for model_id in model_ids]
+            if model_ids is not None
+            else [
+                str(model_id)
+                for model_id in self._call_method(task, ("get_trained_models_ids",), default=[])
+            ]
+        )
+        if not resolved_model_ids:
+            return {
+                **summary,
+                "models": [],
+                "summary": "No trained models are currently available for this Visual ML task.",
+            }
+
+        raw_snippets = self._call_method(
+            task,
+            ("get_trained_model_snippet",),
+            ids=resolved_model_ids,
+            default={},
+        )
+        snippet_map: dict[str, dict[str, Any]] = {}
+        if isinstance(raw_snippets, Mapping):
+            snippet_map = {
+                str(model_id): self._normalize_mapping(snippet)
+                for model_id, snippet in raw_snippets.items()
+            }
+
+        models: list[dict[str, Any]] = []
+        for model_id in resolved_model_ids:
+            snippet = snippet_map.get(model_id, {})
+            models.append(
+                {
+                    "model_id": model_id,
+                    "algorithm": snippet.get("algorithm"),
+                    "session_id": snippet.get("sessionId") or snippet.get("session_id"),
+                    "session_name": snippet.get("sessionName") or snippet.get("session_name"),
+                    "snippet": snippet,
+                }
+            )
+        return {
+            **summary,
+            "models": models,
+            "summary": f"Found {len(models)} trained model(s) for this Visual ML task.",
+        }
+
+    def preview_train_ml_task(
+        self,
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+        *,
+        session_name: str | None = None,
+        session_description: str | None = None,
+        run_queue: bool = False,
+    ) -> dict[str, Any]:
+        details = self.get_ml_task_details(project_key, analysis_id, ml_task_id)
+        return self._action_summary(
+            operation="train_ml_task",
+            project_key=project_key,
+            object_type="ml_task",
+            object_name=ml_task_id,
+            risk_level="medium",
+            rollback_possible=False,
+            exact_operation="Train an existing Dataiku Visual ML task.",
+            changes={
+                "analysis_id": analysis_id,
+                "ml_task_id": ml_task_id,
+                "input_dataset": details.get("input_dataset"),
+                "target_variable": details.get("target_variable"),
+                "enabled_algorithms": details.get("enabled_algorithms"),
+                "existing_trained_models_count": details.get("trained_models_count"),
+                "session_name": session_name,
+                "session_description": session_description,
+                "run_queue": run_queue,
+            },
+        )
+
+    def train_ml_task(
+        self,
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+        *,
+        session_name: str | None = None,
+        session_description: str | None = None,
+        run_queue: bool = False,
+    ) -> dict[str, Any]:
+        task = self._get_ml_task(project_key, analysis_id, ml_task_id)
+        trained_model_ids = self._call_method(
+            task,
+            ("train",),
+            session_name,
+            session_description,
+            run_queue,
+            default=[],
+        )
+        if not isinstance(trained_model_ids, Sequence) or isinstance(
+            trained_model_ids,
+            (str, bytes),
+        ):
+            trained_model_ids = []
+        trained_models_payload = self.list_trained_models(
+            project_key,
+            analysis_id,
+            ml_task_id,
+            model_ids=[str(model_id) for model_id in trained_model_ids],
+        )
+        return {
+            "trained": True,
+            "analysis_id": analysis_id,
+            "ml_task_id": ml_task_id,
+            "session_name": session_name,
+            "session_description": session_description,
+            "run_queue": run_queue,
+            "trained_model_ids": [str(model_id) for model_id in trained_model_ids],
+            "trained_models": trained_models_payload["models"],
+        }
+
+    def preview_deploy_trained_model_to_flow(
+        self,
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+        *,
+        model_id: str | None = None,
+        saved_model_name: str | None = None,
+        train_dataset: str | None = None,
+        test_dataset: str | None = None,
+        redo_optimization: bool = True,
+    ) -> dict[str, Any]:
+        task_details = self.get_ml_task_details(project_key, analysis_id, ml_task_id)
+        trained_models = self.list_trained_models(project_key, analysis_id, ml_task_id)
+        available_models = cast(list[dict[str, Any]], trained_models["models"])
+        selected_model_id = self._select_default_model_id(
+            available_models,
+            requested_model_id=model_id,
+        )
+        resolved_saved_model_name = (
+            saved_model_name
+            if saved_model_name
+            else f"{analysis_id}_{ml_task_id}_saved_model"
+        )
+        resolved_train_dataset = (
+            train_dataset if train_dataset else cast(str | None, task_details.get("input_dataset"))
+        )
+        if not resolved_train_dataset:
+            raise ConfigurationError(
+                "Could not infer the training dataset for this ML task.",
+                suggested_fix="Provide train_dataset explicitly.",
+            )
+        return self._action_summary(
+            operation="deploy_trained_model_to_flow",
+            project_key=project_key,
+            object_type="trained_model",
+            object_name=selected_model_id,
+            risk_level="medium",
+            rollback_possible=True,
+            exact_operation="Deploy a trained Visual ML model to the Flow as a saved model.",
+            changes={
+                "analysis_id": analysis_id,
+                "ml_task_id": ml_task_id,
+                "selected_model_id": selected_model_id,
+                "saved_model_name": resolved_saved_model_name,
+                "train_dataset": resolved_train_dataset,
+                "test_dataset": test_dataset,
+                "redo_optimization": redo_optimization,
+            },
+        )
+
+    def deploy_trained_model_to_flow(
+        self,
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+        *,
+        model_id: str | None = None,
+        saved_model_name: str | None = None,
+        train_dataset: str | None = None,
+        test_dataset: str | None = None,
+        redo_optimization: bool = True,
+    ) -> dict[str, Any]:
+        task = self._get_ml_task(project_key, analysis_id, ml_task_id)
+        task_details = self.get_ml_task_details(project_key, analysis_id, ml_task_id)
+        trained_models = self.list_trained_models(project_key, analysis_id, ml_task_id)
+        available_models = cast(list[dict[str, Any]], trained_models["models"])
+        selected_model_id = self._select_default_model_id(
+            available_models,
+            requested_model_id=model_id,
+        )
+        resolved_saved_model_name = (
+            saved_model_name
+            if saved_model_name
+            else f"{analysis_id}_{ml_task_id}_saved_model"
+        )
+        resolved_train_dataset = (
+            train_dataset if train_dataset else cast(str | None, task_details.get("input_dataset"))
+        )
+        if not resolved_train_dataset:
+            raise ConfigurationError(
+                "Could not infer the training dataset for this ML task.",
+                suggested_fix="Provide train_dataset explicitly.",
+            )
+        deployment = self._normalize_mapping(
+            self._call_method(
+                task,
+                ("deploy_to_flow",),
+                selected_model_id,
+                resolved_saved_model_name,
+                resolved_train_dataset,
+                test_dataset,
+                redo_optimization,
+            )
+        )
+        return {
+            "deployed": True,
+            "analysis_id": analysis_id,
+            "ml_task_id": ml_task_id,
+            "model_id": selected_model_id,
+            "saved_model_name": resolved_saved_model_name,
+            "train_dataset": resolved_train_dataset,
+            "test_dataset": test_dataset,
+            "redo_optimization": redo_optimization,
+            "saved_model_id": deployment.get("savedModelId"),
+            "train_recipe_name": deployment.get("trainRecipeName"),
+            "deployment": deployment,
+            "rollback_guidance": (
+                "Delete the saved model and generated training recipe manually in DSS "
+                "if you need to roll back this deployment."
+            ),
+        }
+
     def preview_create_managed_folder(
         self,
         project_key: str,
@@ -1730,6 +2014,10 @@ class DataikuDSSAdapter:
         project = self._get_project(project_key)
         return self._call_method(project, ("get_scenario", "getScenario"), scenario_id)
 
+    def _get_ml_task(self, project_key: str, analysis_id: str, ml_task_id: str) -> Any:
+        project = self._get_project(project_key)
+        return self._call_method(project, ("get_ml_task",), analysis_id, ml_task_id)
+
     def _get_job(self, project_key: str, job_id: str) -> Any:
         project = self._get_project(project_key)
         return self._call_method(project, ("get_job", "getJob"), job_id)
@@ -2284,6 +2572,28 @@ class DataikuDSSAdapter:
             suggested_fix="Choose a target variable that exists in the dataset schema.",
         )
 
+    def _find_ml_task_summary(
+        self,
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+    ) -> dict[str, Any]:
+        for task_summary in self.list_ml_tasks(project_key):
+            if (
+                task_summary.get("analysis_id") == analysis_id
+                and task_summary.get("ml_task_id") == ml_task_id
+            ):
+                return task_summary
+        raise DataikuObjectNotFoundError(
+            f"ML task {analysis_id}/{ml_task_id} could not be found in project {project_key}.",
+            details={
+                "project_key": project_key,
+                "analysis_id": analysis_id,
+                "ml_task_id": ml_task_id,
+            },
+            suggested_fix="List ML tasks first and use a valid analysis_id / ml_task_id pair.",
+        )
+
     def _validate_prediction_flow_creation(
         self,
         project_key: str,
@@ -2489,6 +2799,22 @@ class DataikuDSSAdapter:
             "analysis_id": analysis_id,
             "ml_task_id": ml_task_id,
         }
+
+    def _extract_ml_task_settings(self, raw_settings: Any) -> dict[str, Any]:
+        if isinstance(raw_settings, Mapping):
+            return dict(raw_settings)
+        get_raw = getattr(raw_settings, "get_raw", None)
+        if callable(get_raw):
+            try:
+                settings = get_raw()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+            if isinstance(settings, Mapping):
+                return dict(settings)
+        mltask_settings = getattr(raw_settings, "mltask_settings", None)
+        if isinstance(mltask_settings, Mapping):
+            return dict(mltask_settings)
+        return self._normalize_api_mapping(raw_settings)
 
     def _validate_python_recipe_creation(
         self,
@@ -2846,6 +3172,84 @@ class DataikuDSSAdapter:
                 return str(candidate)
         candidate = payload.get("connection") or payload.get("connectionName")
         return str(candidate) if candidate is not None else None
+
+    @staticmethod
+    def _normalize_ml_task_summary(raw_task: Any) -> dict[str, Any]:
+        normalized = DataikuDSSAdapter._normalize_mapping(raw_task)
+        return {
+            "analysis_id": normalized.get("analysisId") or normalized.get("analysis_id"),
+            "ml_task_id": (
+                normalized.get("mlTaskId")
+                or normalized.get("mltaskId")
+                or normalized.get("ml_task_id")
+            ),
+            "analysis_name": normalized.get("analysisName") or normalized.get("analysisLabel"),
+            "task_name": normalized.get("mlTaskName") or normalized.get("taskName"),
+            "task_type": normalized.get("taskType"),
+            "input_dataset": normalized.get("inputDataset") or normalized.get("input_dataset"),
+            "prediction_type": (
+                normalized.get("predictionType") or normalized.get("prediction_type")
+            ),
+        }
+
+    @staticmethod
+    def _extract_enabled_algorithms(settings: Mapping[str, Any]) -> list[str]:
+        modeling = settings.get("modeling")
+        if not isinstance(modeling, Mapping):
+            return []
+        enabled_algorithms: list[str] = []
+        algorithm_name_map = {
+            "xgboost": "XGBOOST",
+            "lightgbm": "LIGHTGBM",
+            "random_forest": "RANDOM_FOREST",
+            "logistic_regression": "LOGISTIC_REGRESSION",
+        }
+        for algorithm_key, algorithm_settings in modeling.items():
+            if not isinstance(algorithm_settings, Mapping):
+                continue
+            if algorithm_settings.get("enabled") is True:
+                enabled_algorithms.append(
+                    algorithm_name_map.get(str(algorithm_key), str(algorithm_key).upper())
+                )
+        return enabled_algorithms
+
+    @staticmethod
+    def _extract_trained_model_ids(status: Mapping[str, Any]) -> list[str]:
+        raw_full_model_ids = status.get("fullModelIds")
+        if not isinstance(raw_full_model_ids, Sequence) or isinstance(
+            raw_full_model_ids,
+            (str, bytes),
+        ):
+            return []
+        model_ids: list[str] = []
+        for raw_model in raw_full_model_ids:
+            if not isinstance(raw_model, Mapping):
+                continue
+            model_id = raw_model.get("id")
+            if model_id is not None:
+                model_ids.append(str(model_id))
+        return model_ids
+
+    @staticmethod
+    def _select_default_model_id(
+        models: Sequence[Mapping[str, Any]],
+        *,
+        requested_model_id: str | None,
+    ) -> str:
+        if requested_model_id:
+            return requested_model_id
+        if not models:
+            raise ConfigurationError(
+                "No trained models are available for this ML task.",
+                suggested_fix="Train the ML task first or provide a valid model_id.",
+            )
+        selected_model_id = models[-1].get("model_id")
+        if not isinstance(selected_model_id, str) or not selected_model_id:
+            raise ConfigurationError(
+                "Could not resolve a deployable trained model identifier.",
+                suggested_fix="Provide model_id explicitly.",
+            )
+        return selected_model_id
 
     @staticmethod
     def _extract_schema_columns_count(payload: Mapping[str, Any]) -> int:

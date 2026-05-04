@@ -124,12 +124,6 @@ def list_ml_command_definitions() -> list[MLCommandDefinition]:
     return list(ML_COMMANDS)
 
 
-def render_ml_command_catalog() -> list[dict[str, object]]:
-    """Return a JSON-friendly representation of the command catalog."""
-
-    return [command.to_dict() for command in ML_COMMANDS]
-
-
 def get_ml_command_definition(name: str) -> MLCommandDefinition:
     """Resolve a command from its canonical name or alias."""
 

@@ -13,7 +13,7 @@ def test_build_tool_registry_contains_phase_five_tools(
 ) -> None:
     registry = build_tool_registry(build_app_context(settings=settings, dataiku=adapter))
 
-    assert registry.names() == [
+    assert registry.names() == sorted([
         "dataiku_analyze_flow_health",
         "dataiku_audit_rag_pipeline",
         "dataiku_bootstrap_xgboost_flow",
@@ -22,6 +22,7 @@ def test_build_tool_registry_contains_phase_five_tools(
         "dataiku_create_project_documentation",
         "dataiku_create_python_recipe",
         "dataiku_create_scenario",
+        "dataiku_deploy_trained_model_to_flow",
         "dataiku_detect_rag_pipeline",
         "dataiku_explain_failure",
         "dataiku_generate_flow_documentation",
@@ -35,6 +36,7 @@ def test_build_tool_registry_contains_phase_five_tools(
         "dataiku_get_instance_info",
         "dataiku_get_job_logs",
         "dataiku_get_managed_folder_info",
+        "dataiku_get_ml_task_details",
         "dataiku_get_project_summary",
         "dataiku_get_recipe_details",
         "dataiku_get_scenario_runs",
@@ -43,9 +45,11 @@ def test_build_tool_registry_contains_phase_five_tools(
         "dataiku_list_folder_files",
         "dataiku_list_managed_folders",
         "dataiku_list_ml_commands",
+        "dataiku_list_ml_tasks",
         "dataiku_list_projects",
         "dataiku_list_recipes",
         "dataiku_list_scenarios",
+        "dataiku_list_trained_models",
         "dataiku_managed_folder_doctor",
         "dataiku_ping",
         "dataiku_plan_ml_command",
@@ -53,9 +57,10 @@ def test_build_tool_registry_contains_phase_five_tools(
         "dataiku_run_ml_command",
         "dataiku_run_scenario",
         "dataiku_suggest_prediction_targets",
+        "dataiku_train_ml_task",
         "dataiku_update_recipe_code",
         "dataiku_upload_file_to_folder",
-    ]
+    ])
 
 
 def test_validate_config_command_returns_json(capsys: pytest.CaptureFixture[str]) -> None:

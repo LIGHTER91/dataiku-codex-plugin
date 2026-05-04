@@ -21,6 +21,7 @@ Implemented capability areas:
 - reusable ML command catalog
 - guided prediction target discovery
 - command-driven Visual ML bootstrap for XGBoost, LightGBM, Random Forest and Logistic Regression
+- Visual ML task lifecycle commands for list, train, inspect trained models and deploy-to-flow
 - code environment diagnostics
 - RAG pipeline detection and audit
 - scenario runs, job logs and failure explanation
@@ -122,6 +123,24 @@ Run a reusable ML command after approval:
 .\.venv\Scripts\dataiku-codex-mcp --env-file .env run-ml-command TEST flight_data xgb --approved --approval-reason "Bootstrap ML demo"
 ```
 
+List Visual ML tasks:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env list-ml-tasks TEST
+```
+
+Train a Visual ML task after approval:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env train-ml-task TEST <ANALYSIS_ID> <ML_TASK_ID> --approved --approval-reason "Train ML task"
+```
+
+Deploy a trained model to the Flow:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env deploy-trained-model-to-flow TEST <ANALYSIS_ID> <ML_TASK_ID> --model-id <MODEL_ID> --approved --approval-reason "Deploy trained model"
+```
+
 ## Real DSS validation
 
 The implementation has been exercised on a real Dataiku DSS trial instance, including:
@@ -134,6 +153,13 @@ The implementation has been exercised on a real Dataiku DSS trial instance, incl
 - recipe execution and failure diagnosis
 - custom scenario creation and execution
 - ML command catalog write-path with native Prepare recipe creation, dataset materialization and Visual ML task bootstrap
+
+The latest repo-only validation also confirms:
+
+- dead code audit completed for the ML command layer
+- removal of obsolete helper functions replaced by the generic command catalog
+
+The current DSS trial URL saved in `.env` no longer resolves to a live instance, so new remote smoke tests require the refreshed trial URL before rerunning end-to-end validation.
 
 This also drove compatibility fixes for real Dataiku API objects such as:
 
@@ -195,6 +221,21 @@ GitHub Actions CI is defined in [.github/workflows/ci.yml](.github/workflows/ci.
 - `ruff check .`
 - `mypy src`
 - `python -m build`
+
+## Recommended next development
+
+The next recommended sequence is:
+
+1. Refresh the DSS trial URL in `.env` and rerun the real end-to-end ML lifecycle on a live instance.
+2. Add scoring and evaluation commands after bootstrap, train and deploy.
+3. Add a natural-language intent router that maps user requests to the reusable ML command catalog instead of generating ad-hoc setup code.
+
+This keeps the product aligned with its intended operating model:
+
+- Codex plugin for UI and intent capture
+- MCP server for standardized command execution
+- native DSS visual assets for repeated ML workflows
+- direct code edits only for narrow maintenance work such as renames, patches or recipe fixes
 
 ## Repository map
 

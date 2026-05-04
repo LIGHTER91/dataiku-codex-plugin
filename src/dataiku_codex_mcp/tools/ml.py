@@ -246,6 +246,208 @@ def register_tools(registry: ToolRegistry, ctx: AppContext) -> None:
             },
         )
 
+    def dataiku_list_ml_tasks(project_key: str) -> dict[str, object]:
+        ctx.permissions.require(
+            "dataiku_list_ml_tasks",
+            level=PermissionLevel.READ,
+            project_key=project_key,
+        )
+        payload = ctx.redactor.redact({"ml_tasks": ctx.dataiku.list_ml_tasks(project_key)})
+        ctx.audit.log_tool_call(
+            tool_name="dataiku_list_ml_tasks",
+            mode=ctx.settings.mode.value,
+            operation_type="read",
+            success=True,
+            project_key=project_key,
+        )
+        return ok(
+            payload,
+            metadata={
+                "tool": "dataiku_list_ml_tasks",
+                "mode": ctx.settings.mode.value,
+            },
+        )
+
+    def dataiku_get_ml_task_details(
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+    ) -> dict[str, object]:
+        ctx.permissions.require(
+            "dataiku_get_ml_task_details",
+            level=PermissionLevel.READ,
+            project_key=project_key,
+        )
+        payload = ctx.redactor.redact(
+            ctx.dataiku.get_ml_task_details(project_key, analysis_id, ml_task_id)
+        )
+        ctx.audit.log_tool_call(
+            tool_name="dataiku_get_ml_task_details",
+            mode=ctx.settings.mode.value,
+            operation_type="read",
+            success=True,
+            project_key=project_key,
+            object_name=ml_task_id,
+        )
+        return ok(
+            payload,
+            metadata={
+                "tool": "dataiku_get_ml_task_details",
+                "mode": ctx.settings.mode.value,
+            },
+        )
+
+    def dataiku_list_trained_models(
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+    ) -> dict[str, object]:
+        ctx.permissions.require(
+            "dataiku_list_trained_models",
+            level=PermissionLevel.READ,
+            project_key=project_key,
+        )
+        payload = ctx.redactor.redact(
+            ctx.dataiku.list_trained_models(project_key, analysis_id, ml_task_id)
+        )
+        ctx.audit.log_tool_call(
+            tool_name="dataiku_list_trained_models",
+            mode=ctx.settings.mode.value,
+            operation_type="read",
+            success=True,
+            project_key=project_key,
+            object_name=ml_task_id,
+        )
+        return ok(
+            payload,
+            metadata={
+                "tool": "dataiku_list_trained_models",
+                "mode": ctx.settings.mode.value,
+            },
+        )
+
+    def dataiku_train_ml_task(
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+        session_name: str | None = None,
+        session_description: str | None = None,
+        run_queue: bool = False,
+        approved: bool = False,
+        approval_reason: str | None = None,
+    ) -> dict[str, object]:
+        dry_run_summary = ctx.redactor.redact(
+            ctx.dataiku.preview_train_ml_task(
+                project_key,
+                analysis_id,
+                ml_task_id,
+                session_name=session_name,
+                session_description=session_description,
+                run_queue=run_queue,
+            )
+        )
+        require_approved_action(
+            ctx,
+            tool_name="dataiku_train_ml_task",
+            level=PermissionLevel.EXECUTE,
+            project_key=project_key,
+            approved=approved,
+            approval_reason=approval_reason,
+            dry_run_summary=dry_run_summary,
+        )
+        payload = ctx.redactor.redact(
+            ctx.dataiku.train_ml_task(
+                project_key,
+                analysis_id,
+                ml_task_id,
+                session_name=session_name,
+                session_description=session_description,
+                run_queue=run_queue,
+            )
+        )
+        ctx.audit.log_tool_call(
+            tool_name="dataiku_train_ml_task",
+            mode=ctx.settings.mode.value,
+            operation_type="execute",
+            success=True,
+            project_key=project_key,
+            object_name=ml_task_id,
+        )
+        return ok(
+            {
+                "dry_run_summary": dry_run_summary,
+                **payload,
+            },
+            metadata={
+                "tool": "dataiku_train_ml_task",
+                "mode": ctx.settings.mode.value,
+            },
+        )
+
+    def dataiku_deploy_trained_model_to_flow(
+        project_key: str,
+        analysis_id: str,
+        ml_task_id: str,
+        model_id: str | None = None,
+        saved_model_name: str | None = None,
+        train_dataset: str | None = None,
+        test_dataset: str | None = None,
+        redo_optimization: bool = True,
+        approved: bool = False,
+        approval_reason: str | None = None,
+    ) -> dict[str, object]:
+        dry_run_summary = ctx.redactor.redact(
+            ctx.dataiku.preview_deploy_trained_model_to_flow(
+                project_key,
+                analysis_id,
+                ml_task_id,
+                model_id=model_id,
+                saved_model_name=saved_model_name,
+                train_dataset=train_dataset,
+                test_dataset=test_dataset,
+                redo_optimization=redo_optimization,
+            )
+        )
+        require_approved_action(
+            ctx,
+            tool_name="dataiku_deploy_trained_model_to_flow",
+            level=PermissionLevel.WRITE,
+            project_key=project_key,
+            approved=approved,
+            approval_reason=approval_reason,
+            dry_run_summary=dry_run_summary,
+        )
+        payload = ctx.redactor.redact(
+            ctx.dataiku.deploy_trained_model_to_flow(
+                project_key,
+                analysis_id,
+                ml_task_id,
+                model_id=model_id,
+                saved_model_name=saved_model_name,
+                train_dataset=train_dataset,
+                test_dataset=test_dataset,
+                redo_optimization=redo_optimization,
+            )
+        )
+        ctx.audit.log_tool_call(
+            tool_name="dataiku_deploy_trained_model_to_flow",
+            mode=ctx.settings.mode.value,
+            operation_type="write",
+            success=True,
+            project_key=project_key,
+            object_name=ml_task_id,
+        )
+        return ok(
+            {
+                "dry_run_summary": dry_run_summary,
+                **payload,
+            },
+            metadata={
+                "tool": "dataiku_deploy_trained_model_to_flow",
+                "mode": ctx.settings.mode.value,
+            },
+        )
+
     registry.register(
         "dataiku_list_ml_commands",
         dataiku_list_ml_commands,
@@ -275,4 +477,29 @@ def register_tools(registry: ToolRegistry, ctx: AppContext) -> None:
             "Create a Prepare recipe and a Visual ML prediction task configured "
             "for XGBoost after explicit approval."
         ),
+    )
+    registry.register(
+        "dataiku_list_ml_tasks",
+        dataiku_list_ml_tasks,
+        description="List Visual ML tasks available in a project.",
+    )
+    registry.register(
+        "dataiku_get_ml_task_details",
+        dataiku_get_ml_task_details,
+        description="Get details and status for one Visual ML task.",
+    )
+    registry.register(
+        "dataiku_list_trained_models",
+        dataiku_list_trained_models,
+        description="List trained models available for one Visual ML task.",
+    )
+    registry.register(
+        "dataiku_train_ml_task",
+        dataiku_train_ml_task,
+        description="Train an existing Visual ML task after explicit approval.",
+    )
+    registry.register(
+        "dataiku_deploy_trained_model_to_flow",
+        dataiku_deploy_trained_model_to_flow,
+        description="Deploy a trained Visual ML model to the Flow after explicit approval.",
     )

@@ -371,40 +371,6 @@ def resolve_prediction_type(
     }
 
 
-def build_xgboost_blueprint(
-    dataset_name: str,
-    target_variable: str,
-    prediction_type: str,
-    *,
-    prepared_dataset_name: str | None = None,
-    prepare_recipe_name: str | None = None,
-) -> dict[str, str]:
-    """Build deterministic names for V3.5 XGBoost assets."""
-
-    dataset_slug = slugify(dataset_name)
-    target_slug = slugify(target_variable)
-    algorithm_name = (
-        "XGBOOST_REGRESSION"
-        if prediction_type == "regression"
-        else "XGBOOST_CLASSIFICATION"
-    )
-    return {
-        "prepared_dataset_name": (
-            prepared_dataset_name
-            if prepared_dataset_name
-            else f"{dataset_slug}_prepared_{target_slug}"
-        ),
-        "prepare_recipe_name": (
-            prepare_recipe_name
-            if prepare_recipe_name
-            else f"prepare_{dataset_slug}_{target_slug}"
-        ),
-        "analysis_label": f"xgboost_{dataset_slug}_{target_slug}",
-        "saved_model_name": f"xgboost_{target_slug}_model",
-        "algorithm_name": algorithm_name,
-    }
-
-
 def build_prediction_blueprint(
     command_name: str,
     dataset_name: str,
