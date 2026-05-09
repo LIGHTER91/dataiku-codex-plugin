@@ -1,6 +1,6 @@
 # MCP Tools Specification
 
-The canonical source for all tools is `../TOOL_CATALOG.md`.
+The canonical source for all tools is `../docs/specs/TOOL_CATALOG.md`.
 
 ## Implementation requirements
 

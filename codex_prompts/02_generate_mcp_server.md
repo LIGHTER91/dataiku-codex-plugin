@@ -5,7 +5,7 @@ Implement the MCP server.
 Requirements:
 
 - Support STDIO transport.
-- Register tools from `TOOL_CATALOG.md`.
+- Register tools from `docs/specs/TOOL_CATALOG.md`.
 - Start with read-only tools.
 - Add permission checks before each tool.
 - Add redaction before returning output.

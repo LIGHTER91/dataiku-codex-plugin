@@ -4,15 +4,15 @@ You are coding the project "Dataiku DSS Copilot for Codex".
 
 Read these files first:
 
-- PROJECT_BRIEF.md
-- PRODUCT_REQUIREMENTS.md
-- TECHNICAL_ARCHITECTURE.md
-- CODEX_PLUGIN_SPEC.md
-- MCP_SERVER_SPEC.md
-- TOOL_CATALOG.md
-- SECURITY_MODEL.md
-- TEST_STRATEGY.md
-- TOOL_IMPLEMENTATION_ORDER.md
+- docs/specs/PROJECT_BRIEF.md
+- docs/specs/PRODUCT_REQUIREMENTS.md
+- docs/specs/TECHNICAL_ARCHITECTURE.md
+- docs/specs/CODEX_PLUGIN_SPEC.md
+- docs/specs/MCP_SERVER_SPEC.md
+- docs/specs/TOOL_CATALOG.md
+- docs/specs/SECURITY_MODEL.md
+- docs/specs/TEST_STRATEGY.md
+- docs/archive/TOOL_IMPLEMENTATION_ORDER.md
 
 Your task:
 

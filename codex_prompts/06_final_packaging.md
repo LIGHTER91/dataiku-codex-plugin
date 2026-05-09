@@ -8,7 +8,7 @@ Check:
 - MCP JSON valid.
 - skills valid.
 - README complete.
-- INSTALLATION_GUIDE complete.
+- `docs/guides/INSTALLATION_GUIDE.md` complete.
 - examples complete.
 - tests passing.
 - release notes generated.

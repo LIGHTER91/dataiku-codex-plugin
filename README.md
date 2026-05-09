@@ -294,11 +294,16 @@ This keeps the product aligned with its intended operating model:
 - native DSS visual assets for repeated ML workflows
 - direct code edits only for narrow maintenance work such as renames, patches or recipe fixes
 
+## Documentation
+
+The repository root is intentionally kept small. Detailed product and engineering
+documentation now lives in [docs/README.md](docs/README.md).
+
 ## Repository map
 
 - [src/dataiku_codex_mcp](src/dataiku_codex_mcp)
 - [tests](tests)
+- [docs/README.md](docs/README.md)
 - [plugin.json](plugin.json)
 - [mcp/dataiku.mcp.json](mcp/dataiku.mcp.json)
 - [examples/sample_env.example](examples/sample_env.example)
-- [ALL_DOCUMENTATION.md](ALL_DOCUMENTATION.md)

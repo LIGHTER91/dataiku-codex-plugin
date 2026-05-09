@@ -4,7 +4,7 @@ Implement Managed Folder analysis tools.
 
 Read:
 
-- `TOOL_CATALOG.md`
+- `docs/specs/TOOL_CATALOG.md`
 - `skills/dataiku-managed-folder-debugger/SKILL.md`
 - `docs/decisions/ADR-003-managed-folders-stream-first.md`
 

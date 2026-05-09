@@ -1,6 +1,7 @@
 # Codex Prompt 01 — Generate Architecture
 
-Implement the technical architecture described in `TECHNICAL_ARCHITECTURE.md`.
+Implement the technical architecture described in
+`docs/specs/TECHNICAL_ARCHITECTURE.md`.
 
 Create:
 

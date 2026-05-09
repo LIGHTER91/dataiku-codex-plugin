@@ -9,18 +9,18 @@ This is a complete Codex plugin for Dataiku DSS. It is not a small MVP.
 Read these files before coding:
 
 - README.md
-- PROJECT_BRIEF.md
-- PRODUCT_REQUIREMENTS.md
-- FUNCTIONAL_SPEC.md
-- TECHNICAL_ARCHITECTURE.md
-- CODEX_PLUGIN_SPEC.md
-- MCP_SERVER_SPEC.md
-- TOOL_CATALOG.md
-- SECURITY_MODEL.md
-- PERMISSION_MODEL.md
-- CONFIGURATION_SPEC.md
-- TEST_STRATEGY.md
-- TOOL_IMPLEMENTATION_ORDER.md
+- docs/specs/PROJECT_BRIEF.md
+- docs/specs/PRODUCT_REQUIREMENTS.md
+- docs/specs/FUNCTIONAL_SPEC.md
+- docs/specs/TECHNICAL_ARCHITECTURE.md
+- docs/specs/CODEX_PLUGIN_SPEC.md
+- docs/specs/MCP_SERVER_SPEC.md
+- docs/specs/TOOL_CATALOG.md
+- docs/specs/SECURITY_MODEL.md
+- docs/specs/PERMISSION_MODEL.md
+- docs/specs/CONFIGURATION_SPEC.md
+- docs/specs/TEST_STRATEGY.md
+- docs/archive/TOOL_IMPLEMENTATION_ORDER.md
 
 ## Build principles
 

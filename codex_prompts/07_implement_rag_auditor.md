@@ -4,8 +4,8 @@ Implement RAG detection and audit tools.
 
 Read:
 
-- `FUNCTIONAL_SPEC.md`
-- `TOOL_CATALOG.md`
+- `docs/specs/FUNCTIONAL_SPEC.md`
+- `docs/specs/TOOL_CATALOG.md`
 - `skills/dataiku-rag-pipeline-auditor/SKILL.md`
 
 Implement:
