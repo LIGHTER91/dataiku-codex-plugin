@@ -85,6 +85,13 @@ def map_exception(exc: Exception) -> DataikuCodexError:
             f"Missing dependency: {exc.name or 'unknown module'}.",
             suggested_fix="Install the project dependencies before running the server.",
         )
+    if "instance not found" in lowered:
+        return DataikuConnectionError(
+            "The configured Dataiku DSS instance could not be reached or no longer exists.",
+            suggested_fix=(
+                "Refresh DATAIKU_DSS_URL to a live DSS instance, then retry the command."
+            ),
+        )
     if "401" in lowered or "unauthorized" in lowered or "forbidden" in lowered:
         return DataikuAuthenticationError(
             "Could not authenticate to Dataiku DSS.",

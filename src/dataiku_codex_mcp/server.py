@@ -22,6 +22,7 @@ from dataiku_codex_mcp.policy import PolicyEngine
 from dataiku_codex_mcp.redaction import Redactor
 from dataiku_codex_mcp.remote_auth import build_auth_provider
 from dataiku_codex_mcp.tools import (
+    ai_engineering,
     code_envs,
     datasets,
     documentation,
@@ -29,6 +30,7 @@ from dataiku_codex_mcp.tools import (
     instance,
     managed_folders,
     ml,
+    ops,
     projects,
     rag,
     recipes,
@@ -132,7 +134,9 @@ def build_tool_registry(ctx: AppContext) -> ToolRegistry:
     scenarios.register_tools(registry, ctx)
     code_envs.register_tools(registry, ctx)
     rag.register_tools(registry, ctx)
+    ai_engineering.register_tools(registry, ctx)
     documentation.register_tools(registry, ctx)
+    ops.register_tools(registry, ctx)
     return registry
 
 
@@ -743,6 +747,155 @@ def _run_deploy_trained_model_to_flow(args: argparse.Namespace) -> dict[str, Any
     )
 
 
+def _run_list_saved_models(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact({"saved_models": ctx.dataiku.list_saved_models(args.project_key)}),
+        metadata={"command": "list-saved-models", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_saved_model_details(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.get_saved_model_details(args.project_key, args.saved_model_id)
+        ),
+        metadata={"command": "saved-model-details", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_create_prediction_scoring_recipe(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    registry = build_tool_registry(ctx)
+    return registry.get("dataiku_create_prediction_scoring_recipe").handler(
+        args.project_key,
+        args.saved_model_id,
+        args.input_dataset,
+        args.recipe_name,
+        args.output_dataset_name,
+        args.output_connection,
+        args.approved,
+        args.approval_reason,
+    )
+
+
+def _run_list_model_evaluation_stores(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            {"evaluation_stores": ctx.dataiku.list_model_evaluation_stores(args.project_key)}
+        ),
+        metadata={
+            "command": "list-model-evaluation-stores",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_model_evaluation_store_details(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.get_model_evaluation_store_details(
+                args.project_key,
+                args.evaluation_store_id,
+            )
+        ),
+        metadata={
+            "command": "model-evaluation-store-details",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_create_model_evaluation(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    registry = build_tool_registry(ctx)
+    return registry.get("dataiku_create_model_evaluation").handler(
+        args.project_key,
+        args.saved_model_id,
+        args.evaluation_dataset,
+        args.evaluation_store_id,
+        args.evaluation_store_name,
+        args.recipe_name,
+        args.scored_output_dataset,
+        args.metrics_output_dataset,
+        args.metrics,
+        args.run_immediately,
+        args.approved,
+        args.approval_reason,
+    )
+
+
+def _run_compare_saved_models(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.compare_saved_models(
+                args.project_key,
+                args.saved_model_ids,
+                metric_name=args.metric_name,
+            )
+        ),
+        metadata={"command": "compare-saved-models", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_generate_model_evaluation_report(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.generate_model_evaluation_report(
+                args.project_key,
+                evaluation_store_id=args.evaluation_store_id,
+                saved_model_ids=args.saved_model_ids,
+                metric_name=args.metric_name,
+            )
+        ),
+        metadata={
+            "command": "generate-model-evaluation-report",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_route_ml_intent(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.route_ml_intent(
+                args.intent_text,
+                default_project_key=args.default_project_key,
+                default_dataset_name=args.default_dataset_name,
+            )
+        ),
+        metadata={"command": "route-ml-intent", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_run_routed_ml_intent(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    registry = build_tool_registry(ctx)
+    return registry.get("dataiku_run_routed_ml_intent").handler(
+        args.intent_text,
+        args.default_project_key,
+        args.default_dataset_name,
+        args.approved,
+        args.approval_reason,
+    )
+
+
 def _run_create_managed_folder(args: argparse.Namespace) -> dict[str, Any]:
     settings = load_settings(dotenv_path=args.env_file)
     ctx = build_app_context(settings=settings)
@@ -853,6 +1006,90 @@ def _run_code_env_doctor(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _run_list_plugin_usages(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            {"plugin_usages": ctx.dataiku.list_plugin_usages(args.project_key)}
+        ),
+        metadata={"command": "list-plugin-usages", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_generate_scenario_dependency_map(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.generate_scenario_dependency_map(args.project_key)),
+        metadata={
+            "command": "generate-scenario-dependency-map",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_plan_code_env_updates(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.plan_code_env_updates(env_name=args.env_name)),
+        metadata={"command": "plan-code-env-updates", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_generate_production_readiness_report(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.generate_production_readiness_report(args.project_key)
+        ),
+        metadata={
+            "command": "generate-production-readiness-report",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_generate_cost_performance_report(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.generate_cost_performance_report(args.project_key)),
+        metadata={
+            "command": "generate-cost-performance-report",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_generate_production_readiness_checklist(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.generate_production_readiness_checklist(args.project_key)
+        ),
+        metadata={
+            "command": "generate-production-readiness-checklist",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_generate_governance_documentation(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.generate_governance_documentation(args.project_key)),
+        metadata={
+            "command": "generate-governance-documentation",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
 def _run_detect_rag_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     settings = load_settings(dotenv_path=args.env_file)
     ctx = build_app_context(settings=settings)
@@ -870,6 +1107,107 @@ def _run_audit_rag_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             ctx.dataiku.audit_rag_pipeline(args.project_key, deep=args.deep)
         ),
         metadata={"command": "audit-rag-pipeline", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_run_rag_eval(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.run_rag_eval(
+                args.project_key,
+                benchmark_dataset_name=args.benchmark_dataset_name,
+            )
+        ),
+        metadata={"command": "run-rag-eval", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_compare_chunking_strategies(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.compare_chunking_strategies(
+                args.project_key,
+                dataset_name=args.dataset_name,
+                strategies=args.strategies,
+            )
+        ),
+        metadata={
+            "command": "compare-chunking-strategies",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_inspect_vector_store(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.inspect_vector_store(args.project_key)),
+        metadata={"command": "inspect-vector-store", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_monitor_embedding_drift(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(
+            ctx.dataiku.monitor_embedding_drift(
+                args.project_key,
+                reference_dataset_name=args.reference_dataset_name,
+                current_dataset_name=args.current_dataset_name,
+            )
+        ),
+        metadata={
+            "command": "monitor-embedding-drift",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_audit_prompt_injection(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.audit_prompt_injection(args.project_key)),
+        metadata={"command": "audit-prompt-injection", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_generate_architecture_diagram(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.generate_architecture_diagram(args.project_key)),
+        metadata={
+            "command": "generate-architecture-diagram",
+            "mode": ctx.settings.mode.value,
+        },
+    )
+
+
+def _run_score_project_quality(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.score_project_quality(args.project_key)),
+        metadata={"command": "score-project-quality", "mode": ctx.settings.mode.value},
+    )
+
+
+def _run_prioritize_technical_debt(args: argparse.Namespace) -> dict[str, Any]:
+    settings = load_settings(dotenv_path=args.env_file)
+    ctx = build_app_context(settings=settings)
+    return ok(
+        ctx.redactor.redact(ctx.dataiku.prioritize_technical_debt(args.project_key)),
+        metadata={
+            "command": "prioritize-technical-debt",
+            "mode": ctx.settings.mode.value,
+        },
     )
 
 
@@ -1057,6 +1395,63 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     deploy_model_parser.add_argument("--approved", action="store_true")
     deploy_model_parser.add_argument("--approval-reason", default=None)
+    list_saved_models_parser = subparsers.add_parser("list-saved-models")
+    list_saved_models_parser.add_argument("project_key")
+    saved_model_details_parser = subparsers.add_parser("saved-model-details")
+    saved_model_details_parser.add_argument("project_key")
+    saved_model_details_parser.add_argument("saved_model_id")
+    create_prediction_scoring_parser = subparsers.add_parser("create-prediction-scoring-recipe")
+    create_prediction_scoring_parser.add_argument("project_key")
+    create_prediction_scoring_parser.add_argument("saved_model_id")
+    create_prediction_scoring_parser.add_argument("input_dataset")
+    create_prediction_scoring_parser.add_argument("recipe_name")
+    create_prediction_scoring_parser.add_argument("output_dataset_name")
+    create_prediction_scoring_parser.add_argument("--output-connection", default=None)
+    create_prediction_scoring_parser.add_argument("--approved", action="store_true")
+    create_prediction_scoring_parser.add_argument("--approval-reason", default=None)
+    list_model_evaluation_stores_parser = subparsers.add_parser("list-model-evaluation-stores")
+    list_model_evaluation_stores_parser.add_argument("project_key")
+    model_evaluation_store_details_parser = subparsers.add_parser("model-evaluation-store-details")
+    model_evaluation_store_details_parser.add_argument("project_key")
+    model_evaluation_store_details_parser.add_argument("evaluation_store_id")
+    create_model_evaluation_parser = subparsers.add_parser("create-model-evaluation")
+    create_model_evaluation_parser.add_argument("project_key")
+    create_model_evaluation_parser.add_argument("saved_model_id")
+    create_model_evaluation_parser.add_argument("evaluation_dataset")
+    create_model_evaluation_parser.add_argument("--evaluation-store-id", default=None)
+    create_model_evaluation_parser.add_argument("--evaluation-store-name", default=None)
+    create_model_evaluation_parser.add_argument("--recipe-name", default=None)
+    create_model_evaluation_parser.add_argument("--scored-output-dataset", default=None)
+    create_model_evaluation_parser.add_argument("--metrics-output-dataset", default=None)
+    create_model_evaluation_parser.add_argument("--metrics", nargs="*", default=None)
+    create_model_evaluation_parser.add_argument("--run-immediately", action="store_true")
+    create_model_evaluation_parser.add_argument("--approved", action="store_true")
+    create_model_evaluation_parser.add_argument("--approval-reason", default=None)
+    compare_saved_models_parser = subparsers.add_parser("compare-saved-models")
+    compare_saved_models_parser.add_argument("project_key")
+    compare_saved_models_parser.add_argument("saved_model_ids", nargs="+")
+    compare_saved_models_parser.add_argument("--metric-name", default=None)
+    generate_model_evaluation_report_parser = subparsers.add_parser(
+        "generate-model-evaluation-report"
+    )
+    generate_model_evaluation_report_parser.add_argument("project_key")
+    generate_model_evaluation_report_parser.add_argument("--evaluation-store-id", default=None)
+    generate_model_evaluation_report_parser.add_argument(
+        "--saved-model-ids",
+        nargs="*",
+        default=None,
+    )
+    generate_model_evaluation_report_parser.add_argument("--metric-name", default=None)
+    route_ml_intent_parser = subparsers.add_parser("route-ml-intent")
+    route_ml_intent_parser.add_argument("intent_text")
+    route_ml_intent_parser.add_argument("--default-project-key", default=None)
+    route_ml_intent_parser.add_argument("--default-dataset-name", default=None)
+    run_routed_ml_intent_parser = subparsers.add_parser("run-routed-ml-intent")
+    run_routed_ml_intent_parser.add_argument("intent_text")
+    run_routed_ml_intent_parser.add_argument("--default-project-key", default=None)
+    run_routed_ml_intent_parser.add_argument("--default-dataset-name", default=None)
+    run_routed_ml_intent_parser.add_argument("--approved", action="store_true")
+    run_routed_ml_intent_parser.add_argument("--approval-reason", default=None)
     create_managed_folder_parser = subparsers.add_parser("create-managed-folder")
     create_managed_folder_parser.add_argument("project_key")
     create_managed_folder_parser.add_argument("folder_name")
@@ -1102,11 +1497,48 @@ def _build_parser() -> argparse.ArgumentParser:
     code_env_details_parser.add_argument("env_name")
     code_env_doctor_parser = subparsers.add_parser("code-env-doctor")
     code_env_doctor_parser.add_argument("env_name")
+    list_plugin_usages_parser = subparsers.add_parser("list-plugin-usages")
+    list_plugin_usages_parser.add_argument("project_key")
+    scenario_dependency_map_parser = subparsers.add_parser("generate-scenario-dependency-map")
+    scenario_dependency_map_parser.add_argument("project_key")
+    plan_code_env_updates_parser = subparsers.add_parser("plan-code-env-updates")
+    plan_code_env_updates_parser.add_argument("--env-name", default=None)
+    production_readiness_parser = subparsers.add_parser("generate-production-readiness-report")
+    production_readiness_parser.add_argument("project_key")
+    cost_performance_parser = subparsers.add_parser("generate-cost-performance-report")
+    cost_performance_parser.add_argument("project_key")
+    production_checklist_parser = subparsers.add_parser(
+        "generate-production-readiness-checklist"
+    )
+    production_checklist_parser.add_argument("project_key")
+    governance_doc_parser = subparsers.add_parser("generate-governance-documentation")
+    governance_doc_parser.add_argument("project_key")
     detect_rag_parser = subparsers.add_parser("detect-rag-pipeline")
     detect_rag_parser.add_argument("project_key")
     audit_rag_parser = subparsers.add_parser("audit-rag-pipeline")
     audit_rag_parser.add_argument("project_key")
     audit_rag_parser.add_argument("--deep", action="store_true")
+    run_rag_eval_parser = subparsers.add_parser("run-rag-eval")
+    run_rag_eval_parser.add_argument("project_key")
+    run_rag_eval_parser.add_argument("--benchmark-dataset-name", default=None)
+    compare_chunking_parser = subparsers.add_parser("compare-chunking-strategies")
+    compare_chunking_parser.add_argument("project_key")
+    compare_chunking_parser.add_argument("--dataset-name", default=None)
+    compare_chunking_parser.add_argument("--strategies", nargs="*", default=None)
+    inspect_vector_store_parser = subparsers.add_parser("inspect-vector-store")
+    inspect_vector_store_parser.add_argument("project_key")
+    monitor_embedding_drift_parser = subparsers.add_parser("monitor-embedding-drift")
+    monitor_embedding_drift_parser.add_argument("project_key")
+    monitor_embedding_drift_parser.add_argument("--reference-dataset-name", default=None)
+    monitor_embedding_drift_parser.add_argument("--current-dataset-name", default=None)
+    audit_prompt_injection_parser = subparsers.add_parser("audit-prompt-injection")
+    audit_prompt_injection_parser.add_argument("project_key")
+    architecture_diagram_parser = subparsers.add_parser("generate-architecture-diagram")
+    architecture_diagram_parser.add_argument("project_key")
+    score_quality_parser = subparsers.add_parser("score-project-quality")
+    score_quality_parser.add_argument("project_key")
+    prioritize_debt_parser = subparsers.add_parser("prioritize-technical-debt")
+    prioritize_debt_parser.add_argument("project_key")
     return parser
 
 
@@ -1162,6 +1594,16 @@ def main(argv: list[str] | None = None) -> int:
             "list-trained-models": _run_list_trained_models,
             "train-ml-task": _run_train_ml_task,
             "deploy-trained-model-to-flow": _run_deploy_trained_model_to_flow,
+            "list-saved-models": _run_list_saved_models,
+            "saved-model-details": _run_saved_model_details,
+            "create-prediction-scoring-recipe": _run_create_prediction_scoring_recipe,
+            "list-model-evaluation-stores": _run_list_model_evaluation_stores,
+            "model-evaluation-store-details": _run_model_evaluation_store_details,
+            "create-model-evaluation": _run_create_model_evaluation,
+            "compare-saved-models": _run_compare_saved_models,
+            "generate-model-evaluation-report": _run_generate_model_evaluation_report,
+            "route-ml-intent": _run_route_ml_intent,
+            "run-routed-ml-intent": _run_run_routed_ml_intent,
             "create-managed-folder": _run_create_managed_folder,
             "upload-file-to-folder": _run_upload_file_to_folder,
             "create-scenario": _run_create_scenario,
@@ -1170,8 +1612,23 @@ def main(argv: list[str] | None = None) -> int:
             "list-code-envs": _run_list_code_envs,
             "code-env-details": _run_code_env_details,
             "code-env-doctor": _run_code_env_doctor,
+            "list-plugin-usages": _run_list_plugin_usages,
+            "generate-scenario-dependency-map": _run_generate_scenario_dependency_map,
+            "plan-code-env-updates": _run_plan_code_env_updates,
+            "generate-production-readiness-report": _run_generate_production_readiness_report,
+            "generate-cost-performance-report": _run_generate_cost_performance_report,
+            "generate-production-readiness-checklist": _run_generate_production_readiness_checklist,
+            "generate-governance-documentation": _run_generate_governance_documentation,
             "detect-rag-pipeline": _run_detect_rag_pipeline,
             "audit-rag-pipeline": _run_audit_rag_pipeline,
+            "run-rag-eval": _run_run_rag_eval,
+            "compare-chunking-strategies": _run_compare_chunking_strategies,
+            "inspect-vector-store": _run_inspect_vector_store,
+            "monitor-embedding-drift": _run_monitor_embedding_drift,
+            "audit-prompt-injection": _run_audit_prompt_injection,
+            "generate-architecture-diagram": _run_generate_architecture_diagram,
+            "score-project-quality": _run_score_project_quality,
+            "prioritize-technical-debt": _run_prioritize_technical_debt,
         }
         command = command_map.get(args.command)
         if command is None:

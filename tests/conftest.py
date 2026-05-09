@@ -41,6 +41,8 @@ class FakeRecipe:
         code: str,
         code_env_name: str | None = None,
         steps: list[dict[str, object]] | None = None,
+        project: FakeProject | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         self.name = name
         self.recipe_type = recipe_type
@@ -49,6 +51,8 @@ class FakeRecipe:
         self.code = code
         self.code_env_name = code_env_name
         self.steps = list(steps or [])
+        self.project = project
+        self.metadata = dict(metadata or {})
         self.built = False
 
     def get_definition(self) -> dict[str, object]:
@@ -71,9 +75,26 @@ class FakeRecipe:
         del wait
         del no_fail
         self.built = True
+        if self.recipe_type == "evaluation" and self.project is not None:
+            saved_model_id = self.metadata.get("saved_model_id")
+            evaluation_store_id = self.metadata.get("evaluation_store_id")
+            evaluation_dataset = self.metadata.get("evaluation_dataset")
+            if isinstance(saved_model_id, str) and isinstance(evaluation_store_id, str):
+                saved_model = self.project.saved_models[saved_model_id]
+                active_version_id = saved_model.get_active_version()
+                metrics = saved_model.get_metric_values(active_version_id).get("metrics", {})
+                if not isinstance(metrics, dict):
+                    metrics = {}
+                self.project.model_evaluation_stores[evaluation_store_id].add_evaluation(
+                    saved_model_id=saved_model_id,
+                    version_id=active_version_id,
+                    evaluation_dataset=str(evaluation_dataset or "unknown"),
+                    metrics=metrics,
+                    recipe_name=self.name,
+                )
         return FakeJob(
             job_id=f"Build_{self.outputs[0]}",
-            log_text="INFO prepare recipe completed\n",
+            log_text=f"INFO {self.recipe_type} recipe completed\n",
             status={"baseStatus": {"state": "DONE", "result": "SUCCESS"}},
         )
 
@@ -86,6 +107,7 @@ class FakeRecipeSettings:
         self.engine = recipe.recipe_type
         self.tags = ["critical"]
         self.code_env_name = recipe.code_env_name
+        self.obj_payload = dict(recipe.metadata.get("settings_payload", {}))
 
     def get_code(self) -> str:
         return self._recipe.code
@@ -94,6 +116,7 @@ class FakeRecipeSettings:
         self._recipe.code = new_code
 
     def save(self) -> None:
+        self._recipe.metadata["settings_payload"] = dict(self.obj_payload)
         return None
 
     def to_dict(self) -> dict[str, object]:
@@ -218,6 +241,144 @@ class FakeCodeEnv:
         }
 
 
+class FakeSavedModel:
+    """Fake deployed saved model."""
+
+    def __init__(
+        self,
+        *,
+        saved_model_id: str,
+        name: str,
+        prediction_type: str,
+        versions: list[dict[str, object]],
+        active_version_id: str,
+    ) -> None:
+        self.id = saved_model_id
+        self.name = name
+        self.prediction_type = prediction_type
+        self._versions = {str(version["id"]): dict(version) for version in versions}
+        self._active_version_id = active_version_id
+
+    def list_versions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": version_id,
+                "label": version.get("label"),
+                "active": version_id == self._active_version_id,
+                "createdOn": version.get("createdOn"),
+            }
+            for version_id, version in self._versions.items()
+        ]
+
+    def get_active_version(self) -> str:
+        return self._active_version_id
+
+    def get_version_details(self, version_id: str) -> dict[str, object]:
+        return dict(self._versions[version_id])
+
+    def get_metric_values(self, version_id: str) -> dict[str, object]:
+        version = self._versions[version_id]
+        metrics = version.get("metrics", {})
+        return {"metrics": dict(metrics) if isinstance(metrics, dict) else {}}
+
+
+class FakeEvaluationFullInfo:
+    """Fake evaluation full info payload."""
+
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = dict(payload)
+
+    def get_raw(self) -> dict[str, object]:
+        return dict(self._payload)
+
+
+class FakeModelEvaluation:
+    """Fake model evaluation entry."""
+
+    def __init__(
+        self,
+        *,
+        evaluation_id: str,
+        label: str,
+        metrics: dict[str, object],
+        full_info: dict[str, object],
+    ) -> None:
+        self.id = evaluation_id
+        self.label = label
+        self._metrics = dict(metrics)
+        self._full_info = dict(full_info)
+
+    def get_metrics(self) -> dict[str, object]:
+        return dict(self._metrics)
+
+    def get_full_info(self) -> FakeEvaluationFullInfo:
+        return FakeEvaluationFullInfo(self._full_info)
+
+    def get_full_id(self) -> str:
+        return self.id
+
+
+class FakeModelEvaluationStoreSettings:
+    """Fake model evaluation store settings."""
+
+    def __init__(self, store: FakeModelEvaluationStore) -> None:
+        self._store = store
+
+    def get_raw(self) -> dict[str, object]:
+        return {
+            "id": self._store.id,
+            "name": self._store.name,
+        }
+
+
+class FakeModelEvaluationStore:
+    """Fake model evaluation store."""
+
+    def __init__(self, *, evaluation_store_id: str, name: str) -> None:
+        self.id = evaluation_store_id
+        self.mes_id = evaluation_store_id
+        self.name = name
+        self._evaluations: list[FakeModelEvaluation] = []
+
+    def add_evaluation(
+        self,
+        *,
+        saved_model_id: str,
+        version_id: str,
+        evaluation_dataset: str,
+        metrics: dict[str, object],
+        recipe_name: str,
+    ) -> FakeModelEvaluation:
+        evaluation = FakeModelEvaluation(
+            evaluation_id=f"evaluation_{len(self._evaluations) + 1:03d}",
+            label=f"Evaluation {len(self._evaluations) + 1}",
+            metrics=metrics,
+            full_info={
+                "savedModelId": saved_model_id,
+                "versionId": version_id,
+                "evaluationDataset": evaluation_dataset,
+                "recipeName": recipe_name,
+            },
+        )
+        self._evaluations.append(evaluation)
+        return evaluation
+
+    def get_settings(self) -> FakeModelEvaluationStoreSettings:
+        return FakeModelEvaluationStoreSettings(self)
+
+    def list_model_evaluations(self) -> list[FakeModelEvaluation]:
+        return list(self._evaluations)
+
+    def get_latest_model_evaluation(self) -> FakeModelEvaluation | None:
+        return self._evaluations[-1] if self._evaluations else None
+
+    def get_last_metric_values(self) -> dict[str, object]:
+        latest = self.get_latest_model_evaluation()
+        if latest is None:
+            return {"metrics": {}}
+        return {"metrics": latest.get_metrics()}
+
+
 class FakeMLTaskSettings:
     """Fake mutable ML task settings."""
 
@@ -299,6 +460,7 @@ class FakeMLTask:
         prediction_type: str,
         ml_backend_type: str,
         guess_policy: str,
+        project: FakeProject | None = None,
     ) -> None:
         self.analysis_id = analysis_id
         self.mltask_id = ml_task_id
@@ -307,6 +469,7 @@ class FakeMLTask:
         self.prediction_type = prediction_type
         self.ml_backend_type = ml_backend_type
         self.guess_policy = guess_policy
+        self.project = project
         self.enabled_algorithm: str | None = None
         self.training = False
         self.analysis_name = f"Analysis {analysis_id}"
@@ -411,6 +574,35 @@ class FakeMLTask:
             "redoOptimization": redo_optimization,
         }
         self.deployments.append(deployment)
+        if self.project is not None:
+            matching_models = [
+                model for model in self.trained_models if model["model_id"] == model_id
+            ]
+            trained_model = matching_models[0] if matching_models else None
+            metrics = {}
+            session_name = None
+            if trained_model is not None:
+                snippet = trained_model.get("snippet", {})
+                if isinstance(snippet, dict):
+                    metrics = snippet.get("metrics", {})
+                session_name = trained_model.get("session_name")
+            version_id = f"version_{len(self.project.saved_models) + 1:03d}"
+            self.project.saved_models[deployment["savedModelId"]] = FakeSavedModel(
+                saved_model_id=str(deployment["savedModelId"]),
+                name=model_name,
+                prediction_type=self.prediction_type,
+                versions=[
+                    {
+                        "id": version_id,
+                        "label": session_name or model_name,
+                        "createdOn": "2026-05-04T12:00:00Z",
+                        "algorithm": self.enabled_algorithm or "XGBOOST_CLASSIFICATION",
+                        "trainDataset": train_dataset,
+                        "metrics": dict(metrics) if isinstance(metrics, dict) else {},
+                    }
+                ],
+                active_version_id=version_id,
+            )
         return deployment
 
 
@@ -701,6 +893,37 @@ class FakeWiki:
         return article
 
 
+class FakeManagedDatasetCreationHelper:
+    """Fake managed dataset creation helper."""
+
+    def __init__(self, project: FakeProject, dataset_name: str) -> None:
+        self.project = project
+        self.dataset_name = dataset_name
+        self.connection = "filesystem_default"
+
+    def with_store_into(
+        self,
+        connection: str,
+        type_option_id: str | None = None,
+        format_option_id: str | None = None,
+    ) -> FakeManagedDatasetCreationHelper:
+        del type_option_id
+        del format_option_id
+        self.connection = connection
+        return self
+
+    def create(self, overwrite: bool = False) -> FakeDataset:
+        del overwrite
+        dataset = FakeDataset(
+            self.dataset_name,
+            "Filesystem",
+            self.connection,
+            [],
+        )
+        self.project.datasets[self.dataset_name] = dataset
+        return dataset
+
+
 class FakeRecipeCreator:
     """Fake recipe creator for project.new_recipe()."""
 
@@ -711,6 +934,8 @@ class FakeRecipeCreator:
         self.inputs: list[str] = []
         self.outputs: list[str] = []
         self.output_connection = "filesystem_default"
+        self.input_model_id: str | None = None
+        self.output_roles: dict[str, str] = {}
 
     def with_input(
         self,
@@ -730,9 +955,19 @@ class FakeRecipeCreator:
         role: str = "main",
     ) -> FakeRecipeCreator:
         del append
-        del role
         self.outputs.append(output_id)
+        self.output_roles[role] = output_id
         return self
+
+    def with_input_model(self, model_id: str) -> FakeRecipeCreator:
+        self.input_model_id = model_id
+        return self
+
+    def with_output_metrics(self, output_id: str) -> FakeRecipeCreator:
+        return self.with_output(output_id, role="metrics")
+
+    def with_output_evaluation_store(self, evaluation_store_id: str) -> FakeRecipeCreator:
+        return self.with_output(evaluation_store_id, role="evaluationStore")
 
     def with_existing_output(self, output_id: str, append: bool = False) -> FakeRecipeCreator:
         return self.with_output(output_id, append)
@@ -761,12 +996,22 @@ class FakeRecipeCreator:
         return self.with_output(output_id, append)
 
     def create(self) -> FakeRecipe:
+        role_outputs = dict(self.output_roles)
         recipe = FakeRecipe(
             self.name,
             self.recipe_type,
             list(self.inputs),
             list(self.outputs),
             "",
+            project=self.project,
+            metadata={
+                "saved_model_id": self.input_model_id,
+                "evaluation_store_id": role_outputs.get("evaluationStore"),
+                "metrics_output_dataset": role_outputs.get("metrics"),
+                "scored_output_dataset": role_outputs.get("main"),
+                "evaluation_dataset": self.inputs[0] if self.inputs else None,
+                "settings_payload": {},
+            },
         )
         self.project.recipes[self.name] = recipe
         template_columns: list[dict[str, object]] = []
@@ -775,6 +1020,8 @@ class FakeRecipeCreator:
             if first_input is not None:
                 template_columns = [dict(column) for column in first_input.columns]
         for output_name in self.outputs:
+            if self.output_roles.get("evaluationStore") == output_name:
+                continue
             if output_name not in self.project.datasets:
                 self.project.datasets[output_name] = FakeDataset(
                     output_name,
@@ -967,6 +1214,16 @@ class FakeProject:
             )
         }
         self.ml_tasks: dict[str, FakeMLTask] = {}
+        self.saved_models: dict[str, FakeSavedModel] = {}
+        self.model_evaluation_stores: dict[str, FakeModelEvaluationStore] = {}
+        self.plugin_usages = [
+            {
+                "pluginId": "custom-rag-tools",
+                "pluginName": "Custom RAG Tools",
+                "usageType": "recipe",
+                "recipeNames": ["build_chunks"],
+            }
+        ]
         self.library = FakeLibrary()
         self.wiki = FakeWiki()
 
@@ -1006,6 +1263,9 @@ class FakeProject:
     def new_recipe(self, recipe_type: str, name: str | None = None) -> FakeRecipeCreator:
         return FakeRecipeCreator(self, recipe_type, name or f"{recipe_type}_recipe")
 
+    def new_managed_dataset(self, dataset_name: str) -> FakeManagedDatasetCreationHelper:
+        return FakeManagedDatasetCreationHelper(self, dataset_name)
+
     def create_prediction_ml_task(
         self,
         input_dataset: str,
@@ -1026,6 +1286,7 @@ class FakeProject:
             prediction_type=prediction_type or "REGRESSION",
             ml_backend_type=ml_backend_type,
             guess_policy=guess_policy,
+            project=self,
         )
         task.analysis_name = f"{target_variable} analysis"
         task.task_name = f"Predict {target_variable}"
@@ -1053,6 +1314,44 @@ class FakeProject:
         if task.analysis_id != analysis_id:
             raise ValueError(f"ML task not found: {analysis_id}/{mltask_id}")
         return task
+
+    def list_saved_models(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": saved_model.id,
+                "name": saved_model.name,
+                "predictionType": saved_model.prediction_type,
+                "activeVersionId": saved_model.get_active_version(),
+            }
+            for saved_model in self.saved_models.values()
+        ]
+
+    def get_saved_model(self, saved_model_id: str) -> FakeSavedModel:
+        return self.saved_models[saved_model_id]
+
+    def create_model_evaluation_store(self, name: str) -> FakeModelEvaluationStore:
+        evaluation_store_id = f"mes_{len(self.model_evaluation_stores) + 1:03d}"
+        store = FakeModelEvaluationStore(
+            evaluation_store_id=evaluation_store_id,
+            name=name,
+        )
+        self.model_evaluation_stores[evaluation_store_id] = store
+        return store
+
+    def list_model_evaluation_stores(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": store.id,
+                "name": store.name,
+            }
+            for store in self.model_evaluation_stores.values()
+        ]
+
+    def get_model_evaluation_store(self, mes_id: str) -> FakeModelEvaluationStore:
+        return self.model_evaluation_stores[mes_id]
+
+    def list_plugins_usages(self) -> list[dict[str, object]]:
+        return list(self.plugin_usages)
 
     def list_managed_folders(self) -> list[dict[str, object]]:
         return [

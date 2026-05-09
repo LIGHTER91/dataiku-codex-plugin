@@ -18,11 +18,16 @@ Implemented capability areas:
 - instance and project inspection
 - datasets, recipes and Managed Folders
 - Flow analysis and health checks
+- advanced AI engineering reports for RAG evaluation, chunking comparison, vector-store inspection, embedding drift, prompt-injection audit, architecture diagrams, project quality scoring and debt prioritization
 - reusable ML command catalog
 - guided prediction target discovery
 - command-driven Visual ML bootstrap for XGBoost, LightGBM, Random Forest and Logistic Regression
 - Visual ML task lifecycle commands for list, train, inspect trained models and deploy-to-flow
+- saved model inspection, scoring recipe creation and model evaluation flows
+- natural-language ML intent routing to reusable commands
 - code environment diagnostics
+- plugin inventory, scenario dependency mapping, code env update planning and production readiness reports
+- cost/performance monitoring, production readiness checklists and governance documentation
 - RAG pipeline detection and audit
 - scenario runs, job logs and failure explanation
 - documentation generation
@@ -141,6 +146,56 @@ Deploy a trained model to the Flow:
 .\.venv\Scripts\dataiku-codex-mcp --env-file .env deploy-trained-model-to-flow TEST <ANALYSIS_ID> <ML_TASK_ID> --model-id <MODEL_ID> --approved --approval-reason "Deploy trained model"
 ```
 
+List deployed saved models:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env list-saved-models TEST
+```
+
+Create a prediction scoring recipe from a saved model:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env create-prediction-scoring-recipe TEST <SAVED_MODEL_ID> flight_data score_flights flight_data_scored --approved --approval-reason "Create scoring recipe"
+```
+
+Create and run a model evaluation:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env create-model-evaluation TEST <SAVED_MODEL_ID> flight_data --recipe-name evaluate_flights_model --scored-output-dataset flight_data_eval_scored --metrics-output-dataset flight_data_eval_metrics --metrics accuracy auc --run-immediately --approved --approval-reason "Run model evaluation"
+```
+
+Route a natural-language ML request to the command catalog:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env route-ml-intent "setup xgboost on project TEST using dataset flight_data for Cancelled"
+```
+
+Generate an ops readiness report:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env generate-production-readiness-report TEST
+```
+
+Generate the remaining V4.0 ops reports:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env generate-cost-performance-report TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env generate-production-readiness-checklist TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env generate-governance-documentation TEST
+```
+
+Run the V3.0 RAG engineering reports:
+
+```powershell
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env run-rag-eval TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env compare-chunking-strategies TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env inspect-vector-store TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env audit-prompt-injection TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env generate-architecture-diagram TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env score-project-quality TEST
+.\.venv\Scripts\dataiku-codex-mcp --env-file .env prioritize-technical-debt TEST
+```
+
 ## Real DSS validation
 
 The implementation has been exercised on a real Dataiku DSS trial instance, including:
@@ -158,6 +213,8 @@ The latest repo-only validation also confirms:
 
 - dead code audit completed for the ML command layer
 - removal of obsolete helper functions replaced by the generic command catalog
+- scoring, evaluation, routed ML intents and ops commands covered by automated tests
+- V3.0 advanced AI engineering analyzers covered by automated tests and CLI smoke checks
 
 The current DSS trial URL saved in `.env` no longer resolves to a live instance, so new remote smoke tests require the refreshed trial URL before rerunning end-to-end validation.
 
@@ -227,8 +284,8 @@ GitHub Actions CI is defined in [.github/workflows/ci.yml](.github/workflows/ci.
 The next recommended sequence is:
 
 1. Refresh the DSS trial URL in `.env` and rerun the real end-to-end ML lifecycle on a live instance.
-2. Add scoring and evaluation commands after bootstrap, train and deploy.
-3. Add a natural-language intent router that maps user requests to the reusable ML command catalog instead of generating ad-hoc setup code.
+2. Re-run the V3.0 AI engineering reports on a live DSS project with richer benchmark datasets.
+3. Extend the live DSS smoke tests to the new V4.0 cost/perf and governance outputs on a richer project.
 
 This keeps the product aligned with its intended operating model:
 

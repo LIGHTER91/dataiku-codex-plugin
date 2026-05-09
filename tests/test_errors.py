@@ -17,3 +17,9 @@ def test_normalize_exception_maps_permission_error() -> None:
     payload = normalize_exception(PermissionError("nope"))
 
     assert payload["error"]["type"] == "PermissionDeniedError"
+
+
+def test_normalize_exception_maps_missing_dss_instance() -> None:
+    payload = normalize_exception(Exception("Dataiku instance not found"))
+
+    assert payload["error"]["type"] == "DataikuConnectionError"

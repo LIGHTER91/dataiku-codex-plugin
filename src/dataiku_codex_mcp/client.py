@@ -9,6 +9,16 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 
+from dataiku_codex_mcp.analyzers.ai_engineering import (
+    audit_prompt_injection,
+    compare_chunking_strategies,
+    generate_architecture_diagram,
+    inspect_vector_store,
+    monitor_embedding_drift,
+    prioritize_technical_debt,
+    run_rag_evaluation,
+    score_project_quality,
+)
 from dataiku_codex_mcp.analyzers.code_envs import analyze_code_env
 from dataiku_codex_mcp.analyzers.code_review import review_recipe_code
 from dataiku_codex_mcp.analyzers.documentation import (
@@ -29,6 +39,7 @@ from dataiku_codex_mcp.analyzers.flow_graph import (
     generate_project_map,
 )
 from dataiku_codex_mcp.analyzers.folder_doctor import analyze_managed_folder
+from dataiku_codex_mcp.analyzers.intent_router import route_ml_intent as analyze_ml_intent
 from dataiku_codex_mcp.analyzers.log_analysis import (
     explain_failure as analyze_failure_explanation,
 )
@@ -43,10 +54,19 @@ from dataiku_codex_mcp.analyzers.ml_commands import (
     list_ml_command_definitions,
     resolve_command_algorithm,
 )
+from dataiku_codex_mcp.analyzers.ops import (
+    build_code_env_update_plan,
+    build_cost_performance_report,
+    build_production_readiness_checklist,
+    build_production_readiness_report,
+    build_scenario_dependency_map,
+    generate_governance_documentation,
+)
 from dataiku_codex_mcp.analyzers.rag_audit import audit_rag_pipeline, detect_rag_pipeline
 from dataiku_codex_mcp.config import AppSettings
 from dataiku_codex_mcp.errors import (
     ConfigurationError,
+    DataikuCodexError,
     DataikuObjectNotFoundError,
     UnsupportedOperationError,
     map_exception,
@@ -619,32 +639,152 @@ class DataikuDSSAdapter:
         details = self.get_code_env_details(env_name)
         return analyze_code_env(details)
 
-    def detect_rag_pipeline(self, project_key: str) -> dict[str, Any]:
-        recipes = self.list_recipes(project_key)
-        recipe_details = [
-            self.get_recipe_details(project_key, recipe["name"])
-            for recipe in recipes
-            if recipe.get("name")
-        ]
-        return detect_rag_pipeline(recipe_details)
-
-    def audit_rag_pipeline(self, project_key: str, *, deep: bool = False) -> dict[str, Any]:
-        datasets = self.list_datasets(project_key)
-        dataset_schemas = {
-            dataset["name"]: self.get_dataset_schema(project_key, dataset["name"])
-            for dataset in datasets
-            if dataset.get("name")
-        }
-        recipe_details = [
+    def _collect_recipe_details(self, project_key: str) -> list[dict[str, Any]]:
+        return [
             self.get_recipe_details(project_key, recipe["name"])
             for recipe in self.list_recipes(project_key)
             if recipe.get("name")
         ]
+
+    def _collect_dataset_schemas(
+        self,
+        project_key: str,
+        datasets: Sequence[Mapping[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        return {
+            str(dataset["name"]): self.get_dataset_schema(project_key, str(dataset["name"]))
+            for dataset in datasets
+            if dataset.get("name")
+        }
+
+    def detect_rag_pipeline(self, project_key: str) -> dict[str, Any]:
+        return detect_rag_pipeline(self._collect_recipe_details(project_key))
+
+    def audit_rag_pipeline(self, project_key: str, *, deep: bool = False) -> dict[str, Any]:
+        datasets = self.list_datasets(project_key)
+        dataset_schemas = self._collect_dataset_schemas(project_key, datasets)
+        recipe_details = self._collect_recipe_details(project_key)
         return audit_rag_pipeline(
             recipe_details=recipe_details,
             datasets=datasets,
             dataset_schemas=dataset_schemas,
             deep=deep,
+        )
+
+    def run_rag_eval(
+        self,
+        project_key: str,
+        *,
+        benchmark_dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        datasets = self.list_datasets(project_key)
+        dataset_schemas = self._collect_dataset_schemas(project_key, datasets)
+        recipe_details = self._collect_recipe_details(project_key)
+        detection = detect_rag_pipeline(recipe_details)
+        rag_audit = audit_rag_pipeline(
+            recipe_details=recipe_details,
+            datasets=datasets,
+            dataset_schemas=dataset_schemas,
+            deep=True,
+        )
+        return run_rag_evaluation(
+            project_key=project_key,
+            detection=detection,
+            rag_audit=rag_audit,
+            datasets=datasets,
+            dataset_schemas=dataset_schemas,
+            recipe_details=recipe_details,
+            benchmark_dataset_name=benchmark_dataset_name,
+        )
+
+    def compare_chunking_strategies(
+        self,
+        project_key: str,
+        *,
+        dataset_name: str | None = None,
+        strategies: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        return compare_chunking_strategies(
+            project_key=project_key,
+            recipe_details=self._collect_recipe_details(project_key),
+            dataset_name=dataset_name,
+            strategies=strategies,
+        )
+
+    def inspect_vector_store(self, project_key: str) -> dict[str, Any]:
+        datasets = self.list_datasets(project_key)
+        dataset_schemas = self._collect_dataset_schemas(project_key, datasets)
+        recipe_details = self._collect_recipe_details(project_key)
+        rag_audit = audit_rag_pipeline(
+            recipe_details=recipe_details,
+            datasets=datasets,
+            dataset_schemas=dataset_schemas,
+            deep=True,
+        )
+        return inspect_vector_store(
+            project_key=project_key,
+            rag_audit=rag_audit,
+            dataset_schemas=dataset_schemas,
+            recipe_details=recipe_details,
+        )
+
+    def monitor_embedding_drift(
+        self,
+        project_key: str,
+        *,
+        reference_dataset_name: str | None = None,
+        current_dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        datasets = self.list_datasets(project_key)
+        dataset_schemas = self._collect_dataset_schemas(project_key, datasets)
+        return monitor_embedding_drift(
+            project_key=project_key,
+            dataset_schemas=dataset_schemas,
+            recipe_details=self._collect_recipe_details(project_key),
+            reference_dataset_name=reference_dataset_name,
+            current_dataset_name=current_dataset_name,
+        )
+
+    def audit_prompt_injection(self, project_key: str) -> dict[str, Any]:
+        datasets = self.list_datasets(project_key)
+        dataset_schemas = self._collect_dataset_schemas(project_key, datasets)
+        return audit_prompt_injection(
+            project_key=project_key,
+            dataset_schemas=dataset_schemas,
+            recipe_details=self._collect_recipe_details(project_key),
+        )
+
+    def generate_architecture_diagram(self, project_key: str) -> dict[str, Any]:
+        recipe_details = self._collect_recipe_details(project_key)
+        detection = detect_rag_pipeline(recipe_details)
+        return generate_architecture_diagram(
+            project_key=project_key,
+            flow_graph=self.get_flow_graph(project_key),
+            detection=detection,
+        )
+
+    def score_project_quality(self, project_key: str) -> dict[str, Any]:
+        project_summary = self.get_project_summary(project_key)
+        flow_health = self.analyze_flow_health(project_key)
+        rag_audit = self.audit_rag_pipeline(project_key, deep=True)
+        readiness_report = self.generate_production_readiness_report(project_key)
+        code_env_update_plan = self.plan_code_env_updates()
+        return score_project_quality(
+            project_key=project_key,
+            project_summary=project_summary,
+            flow_health=flow_health,
+            rag_audit=rag_audit,
+            readiness_report=readiness_report,
+            code_env_update_plan=code_env_update_plan,
+        )
+
+    def prioritize_technical_debt(self, project_key: str) -> dict[str, Any]:
+        return prioritize_technical_debt(
+            project_key=project_key,
+            flow_health=self.analyze_flow_health(project_key),
+            rag_audit=self.audit_rag_pipeline(project_key, deep=True),
+            readiness_report=self.generate_production_readiness_report(project_key),
+            code_env_update_plan=self.plan_code_env_updates(),
         )
 
     def generate_project_readme(self, project_key: str) -> dict[str, Any]:
@@ -1240,12 +1380,15 @@ class DataikuDSSAdapter:
         models: list[dict[str, Any]] = []
         for model_id in resolved_model_ids:
             snippet = snippet_map.get(model_id, {})
+            metrics = self._normalize_metric_values(snippet.get("metrics", {}))
             models.append(
                 {
                     "model_id": model_id,
                     "algorithm": snippet.get("algorithm"),
                     "session_id": snippet.get("sessionId") or snippet.get("session_id"),
                     "session_name": snippet.get("sessionName") or snippet.get("session_name"),
+                    "metrics": metrics,
+                    "primary_metric": self._select_primary_metric(metrics),
                     "snippet": snippet,
                 }
             )
@@ -1439,6 +1582,741 @@ class DataikuDSSAdapter:
                 "Delete the saved model and generated training recipe manually in DSS "
                 "if you need to roll back this deployment."
             ),
+        }
+
+    def list_saved_models(self, project_key: str) -> list[dict[str, Any]]:
+        project = self._get_project(project_key)
+        raw_saved_models = self._call_method(project, ("list_saved_models",), default=[])
+        if not isinstance(raw_saved_models, Sequence) or isinstance(raw_saved_models, (str, bytes)):
+            return []
+        return [
+            self._normalize_saved_model_summary(saved_model)
+            for saved_model in raw_saved_models
+            if self._normalize_saved_model_summary(saved_model).get("saved_model_id")
+        ]
+
+    def get_saved_model_details(
+        self,
+        project_key: str,
+        saved_model_id: str,
+    ) -> dict[str, Any]:
+        saved_model = self._get_saved_model(project_key, saved_model_id)
+        summary = self._find_saved_model_summary(project_key, saved_model_id)
+        versions = self._call_method(saved_model, ("list_versions",), default=[])
+        normalized_versions = []
+        if isinstance(versions, Sequence) and not isinstance(versions, (str, bytes)):
+            normalized_versions = [
+                self._normalize_saved_model_version(version)
+                for version in versions
+            ]
+        active_version = self._call_method(saved_model, ("get_active_version",), default=None)
+        active_version_id = self._extract_saved_model_version_id(active_version)
+        active_version_details = {}
+        active_version_metrics: dict[str, Any] = {}
+        if active_version_id is not None:
+            active_version_details = self._normalize_mapping(
+                self._call_method(
+                    saved_model,
+                    ("get_version_details",),
+                    active_version_id,
+                    default={},
+                )
+            )
+            active_version_metrics = self._normalize_metric_values(
+                self._call_method(
+                    saved_model,
+                    ("get_metric_values",),
+                    active_version_id,
+                    default={},
+                )
+            )
+        return {
+            **summary,
+            "active_version_id": active_version_id,
+            "versions": normalized_versions,
+            "versions_count": len(normalized_versions),
+            "active_version_details": active_version_details,
+            "active_version_metrics": active_version_metrics,
+            "primary_metric": self._select_primary_metric(active_version_metrics),
+        }
+
+    def preview_create_prediction_scoring_recipe(
+        self,
+        project_key: str,
+        saved_model_id: str,
+        input_dataset: str,
+        *,
+        recipe_name: str,
+        output_dataset_name: str,
+        output_connection: str | None = None,
+    ) -> dict[str, Any]:
+        self.get_saved_model_details(project_key, saved_model_id)
+        self._get_dataset(project_key, input_dataset)
+        resolved_output_connection = (
+            output_connection
+            if output_connection
+            else self._resolve_visual_output_connection(project_key, input_dataset)
+        )
+        existing_recipe_names = {
+            str(recipe.get("name"))
+            for recipe in self.list_recipes(project_key)
+            if recipe.get("name")
+        }
+        existing_dataset_names = {
+            str(dataset.get("name"))
+            for dataset in self.list_datasets(project_key)
+            if dataset.get("name")
+        }
+        return self._action_summary(
+            operation="create_prediction_scoring_recipe",
+            project_key=project_key,
+            object_type="recipe",
+            object_name=recipe_name,
+            risk_level="medium",
+            rollback_possible=True,
+            exact_operation=(
+                "Create a native Dataiku prediction scoring recipe from a "
+                "deployed saved model."
+            ),
+            changes={
+                "saved_model_id": saved_model_id,
+                "input_dataset": input_dataset,
+                "output_dataset_name": output_dataset_name,
+                "output_connection": resolved_output_connection,
+                "recipe_exists": recipe_name in existing_recipe_names,
+                "output_dataset_exists": output_dataset_name in existing_dataset_names,
+            },
+        )
+
+    def create_prediction_scoring_recipe(
+        self,
+        project_key: str,
+        saved_model_id: str,
+        input_dataset: str,
+        *,
+        recipe_name: str,
+        output_dataset_name: str,
+        output_connection: str | None = None,
+    ) -> dict[str, Any]:
+        self._validate_scoring_recipe_creation(
+            project_key,
+            recipe_name=recipe_name,
+            output_dataset_name=output_dataset_name,
+        )
+        self.get_saved_model_details(project_key, saved_model_id)
+        self._get_dataset(project_key, input_dataset)
+        project = self._get_project(project_key)
+        resolved_output_connection = (
+            output_connection
+            if output_connection
+            else self._resolve_visual_output_connection(project_key, input_dataset)
+        )
+        creator = self._call_method(project, ("new_recipe",), "prediction_scoring", recipe_name)
+        self._call_method(creator, ("with_input_model",), saved_model_id)
+        self._call_method(creator, ("with_input",), input_dataset)
+        self._call_method(
+            creator,
+            ("with_new_output",),
+            output_dataset_name,
+            resolved_output_connection,
+        )
+        recipe = self._call_method(creator, ("create", "build"))
+        return {
+            "created": True,
+            "recipe_name": recipe_name,
+            "recipe_type": "prediction_scoring",
+            "saved_model_id": saved_model_id,
+            "input_dataset": input_dataset,
+            "output_dataset_name": output_dataset_name,
+            "output_connection": resolved_output_connection,
+            "recipe": self._normalize_mapping(
+                self._call_method(recipe, ("get_definition", "to_dict"), default={})
+            ),
+        }
+
+    def list_model_evaluation_stores(self, project_key: str) -> list[dict[str, Any]]:
+        project = self._get_project(project_key)
+        raw_stores = self._call_method(project, ("list_model_evaluation_stores",), default=[])
+        if not isinstance(raw_stores, Sequence) or isinstance(raw_stores, (str, bytes)):
+            return []
+        return [
+            self._normalize_model_evaluation_store_summary(store)
+            for store in raw_stores
+            if self._normalize_model_evaluation_store_summary(store).get("evaluation_store_id")
+        ]
+
+    def get_model_evaluation_store_details(
+        self,
+        project_key: str,
+        evaluation_store_id: str,
+    ) -> dict[str, Any]:
+        store = self._get_model_evaluation_store(project_key, evaluation_store_id)
+        summary = self._find_model_evaluation_store_summary(project_key, evaluation_store_id)
+        settings = self._normalize_settings_payload(
+            self._call_method(store, ("get_settings",), default={})
+        )
+        try:
+            raw_evaluations = self._call_method(
+                store,
+                ("list_model_evaluations", "list_evaluations"),
+                default=[],
+            )
+        except DataikuCodexError:
+            raw_evaluations = []
+        evaluations: list[dict[str, Any]] = []
+        if isinstance(raw_evaluations, Sequence) and not isinstance(raw_evaluations, (str, bytes)):
+            evaluations = [
+                self._normalize_model_evaluation_summary(evaluation)
+                for evaluation in raw_evaluations
+            ]
+        try:
+            latest_evaluation = self._call_method(
+                store,
+                ("get_latest_model_evaluation", "get_latest_evaluation"),
+                default=None,
+            )
+        except DataikuCodexError:
+            latest_evaluation = None
+        latest_metrics: dict[str, Any] = {}
+        latest_full_info: dict[str, Any] = {}
+        latest_evaluation_id: str | None = None
+        if latest_evaluation is not None:
+            latest_evaluation_id = self._extract_evaluation_id(latest_evaluation)
+            try:
+                latest_metrics = self._normalize_metric_values(
+                    self._call_method(latest_evaluation, ("get_metrics",), default={})
+                )
+            except DataikuCodexError:
+                latest_metrics = {}
+            try:
+                latest_full_info = self._normalize_evaluation_full_info(
+                    self._call_method(latest_evaluation, ("get_full_info",), default={})
+                )
+            except DataikuCodexError:
+                latest_full_info = {}
+        try:
+            last_metric_values = self._normalize_metric_values(
+                self._call_method(store, ("get_last_metric_values",), default={})
+            )
+        except DataikuCodexError:
+            last_metric_values = {}
+        return {
+            **summary,
+            "settings": settings,
+            "evaluations_count": len(evaluations),
+            "evaluations": evaluations,
+            "latest_evaluation_id": latest_evaluation_id,
+            "latest_metrics": latest_metrics,
+            "latest_full_info": latest_full_info,
+            "last_metric_values": last_metric_values,
+            "primary_metric": self._select_primary_metric(latest_metrics or last_metric_values),
+        }
+
+    def preview_create_model_evaluation(
+        self,
+        project_key: str,
+        saved_model_id: str,
+        evaluation_dataset: str,
+        *,
+        evaluation_store_id: str | None = None,
+        evaluation_store_name: str | None = None,
+        recipe_name: str | None = None,
+        scored_output_dataset: str | None = None,
+        metrics_output_dataset: str | None = None,
+        metrics: Sequence[str] | None = None,
+        run_immediately: bool = False,
+    ) -> dict[str, Any]:
+        plan = self._resolve_model_evaluation_plan(
+            project_key,
+            saved_model_id,
+            evaluation_dataset,
+            evaluation_store_id=evaluation_store_id,
+            evaluation_store_name=evaluation_store_name,
+            recipe_name=recipe_name,
+            scored_output_dataset=scored_output_dataset,
+            metrics_output_dataset=metrics_output_dataset,
+            metrics=metrics,
+            run_immediately=run_immediately,
+        )
+        return self._action_summary(
+            operation="create_model_evaluation",
+            project_key=project_key,
+            object_type="evaluation_recipe",
+            object_name=str(plan["recipe_name"]),
+            risk_level="medium" if run_immediately else "low",
+            rollback_possible=True,
+            exact_operation=(
+                "Create Dataiku-native evaluation assets for a deployed saved model and "
+                "optionally run the evaluation recipe immediately."
+            ),
+            changes=plan,
+        )
+
+    def create_model_evaluation(
+        self,
+        project_key: str,
+        saved_model_id: str,
+        evaluation_dataset: str,
+        *,
+        evaluation_store_id: str | None = None,
+        evaluation_store_name: str | None = None,
+        recipe_name: str | None = None,
+        scored_output_dataset: str | None = None,
+        metrics_output_dataset: str | None = None,
+        metrics: Sequence[str] | None = None,
+        run_immediately: bool = False,
+    ) -> dict[str, Any]:
+        plan = self._resolve_model_evaluation_plan(
+            project_key,
+            saved_model_id,
+            evaluation_dataset,
+            evaluation_store_id=evaluation_store_id,
+            evaluation_store_name=evaluation_store_name,
+            recipe_name=recipe_name,
+            scored_output_dataset=scored_output_dataset,
+            metrics_output_dataset=metrics_output_dataset,
+            metrics=metrics,
+            run_immediately=run_immediately,
+        )
+        self._validate_model_evaluation_creation(
+            project_key,
+            recipe_name=str(plan["recipe_name"]),
+            evaluation_store_id=cast(str | None, plan["evaluation_store_id"]),
+            evaluation_store_name=cast(str | None, plan["evaluation_store_name"]),
+            scored_output_dataset=str(plan["scored_output_dataset"]),
+            metrics_output_dataset=str(plan["metrics_output_dataset"]),
+        )
+
+        project = self._get_project(project_key)
+        evaluation_store_handle = None
+        resolved_store_id = cast(str | None, plan["evaluation_store_id"])
+        if resolved_store_id is None:
+            evaluation_store_handle = self._call_method(
+                project,
+                ("create_model_evaluation_store",),
+                str(plan["evaluation_store_name"]),
+            )
+            resolved_store_id = (
+                cast(str | None, self._read_attribute(evaluation_store_handle, "mes_id"))
+                or cast(str | None, self._read_attribute(evaluation_store_handle, "id"))
+                or cast(str | None, self._normalize_mapping(evaluation_store_handle).get("id"))
+            )
+            if resolved_store_id is None:
+                raise UnsupportedOperationError(
+                    "Could not resolve the created model evaluation store identifier.",
+                    suggested_fix=(
+                        "Create the evaluation store manually in DSS and pass "
+                        "evaluation_store_id explicitly."
+                    ),
+                )
+        else:
+            evaluation_store_handle = self._get_model_evaluation_store(
+                project_key,
+                resolved_store_id,
+            )
+
+        connection = self._resolve_visual_output_connection(project_key, evaluation_dataset)
+        self._ensure_managed_dataset(project_key, str(plan["scored_output_dataset"]), connection)
+        self._ensure_managed_dataset(project_key, str(plan["metrics_output_dataset"]), connection)
+
+        creator = self._call_method(
+            project,
+            ("new_recipe",),
+            "evaluation",
+            str(plan["recipe_name"]),
+        )
+        self._call_method(creator, ("with_input_model",), saved_model_id)
+        self._call_method(creator, ("with_input",), evaluation_dataset)
+        self._call_method(creator, ("with_output",), str(plan["scored_output_dataset"]))
+        self._call_method(creator, ("with_output_metrics",), str(plan["metrics_output_dataset"]))
+        self._call_method(creator, ("with_output_evaluation_store",), resolved_store_id)
+        recipe = self._call_method(creator, ("create", "build"))
+
+        run_job_id = None
+        if run_immediately:
+            run_job = self._call_method(recipe, ("run",), default=None)
+            run_job_id = self._read_attribute(run_job, "id") if run_job is not None else None
+
+        try:
+            details = self.get_model_evaluation_store_details(project_key, resolved_store_id)
+        except DataikuCodexError as exc:
+            details = {
+                **self._find_model_evaluation_store_summary(project_key, resolved_store_id),
+                "details_warning": exc.message,
+            }
+        return {
+            "created": True,
+            "recipe_name": str(plan["recipe_name"]),
+            "saved_model_id": saved_model_id,
+            "evaluation_dataset": evaluation_dataset,
+            "evaluation_store_id": resolved_store_id,
+            "evaluation_store_name": plan["evaluation_store_name"],
+            "scored_output_dataset": plan["scored_output_dataset"],
+            "metrics_output_dataset": plan["metrics_output_dataset"],
+            "metrics": plan["metrics"],
+            "run_immediately": run_immediately,
+            "run_job_id": run_job_id,
+            "evaluation_store": details,
+            "recipe": self._normalize_mapping(
+                self._call_method(recipe, ("get_definition", "to_dict"), default={})
+            ),
+        }
+
+    def compare_saved_models(
+        self,
+        project_key: str,
+        saved_model_ids: Sequence[str],
+        *,
+        metric_name: str | None = None,
+    ) -> dict[str, Any]:
+        models = [
+            self.get_saved_model_details(project_key, saved_model_id)
+            for saved_model_id in saved_model_ids
+        ]
+        comparison_metric = metric_name or self._select_comparison_metric(models)
+        ranked_models = sorted(
+            models,
+            key=lambda model: self._metric_sort_value(
+                cast(dict[str, Any], model.get("active_version_metrics", {})),
+                comparison_metric,
+            ),
+            reverse=self._metric_prefers_higher(comparison_metric),
+        )
+        best_model = ranked_models[0] if ranked_models else None
+        return {
+            "metric_name": comparison_metric,
+            "models": ranked_models,
+            "best_model": best_model,
+            "summary": (
+                f"Compared {len(ranked_models)} saved model(s) using metric {comparison_metric}."
+            ),
+        }
+
+    def generate_model_evaluation_report(
+        self,
+        project_key: str,
+        *,
+        evaluation_store_id: str | None = None,
+        saved_model_ids: Sequence[str] | None = None,
+        metric_name: str | None = None,
+    ) -> dict[str, Any]:
+        if evaluation_store_id is not None:
+            details = self.get_model_evaluation_store_details(project_key, evaluation_store_id)
+            primary_metric = cast(dict[str, Any], details.get("primary_metric") or {})
+            report_lines = [
+                f"# Model Evaluation Report for {evaluation_store_id}",
+                "",
+                f"- Project: {project_key}",
+                f"- Evaluations count: {details.get('evaluations_count', 0)}",
+                f"- Primary metric: {primary_metric.get('metric_name', 'n/a')}",
+                f"- Primary value: {primary_metric.get('metric_value', 'n/a')}",
+            ]
+            return {
+                "basis": "evaluation_store",
+                "evaluation_store": details,
+                "report_markdown": "\n".join(report_lines),
+                "summary": f"Generated an evaluation report from store {evaluation_store_id}.",
+            }
+
+        if not saved_model_ids:
+            raise ConfigurationError(
+                "Provide evaluation_store_id or at least one saved_model_id.",
+                suggested_fix="Pass --evaluation-store-id or --saved-model-ids.",
+            )
+        comparison = self.compare_saved_models(
+            project_key,
+            saved_model_ids,
+            metric_name=metric_name,
+        )
+        best_model = cast(dict[str, Any] | None, comparison.get("best_model"))
+        report_lines = [
+            "# Saved Model Comparison Report",
+            "",
+            f"- Project: {project_key}",
+            f"- Comparison metric: {comparison.get('metric_name')}",
+        ]
+        if best_model is not None:
+            report_lines.append(
+                f"- Best model: {best_model.get('name') or best_model.get('saved_model_id')}"
+            )
+        for model in cast(list[dict[str, Any]], comparison.get("models", [])):
+            primary_metric = cast(dict[str, Any], model.get("primary_metric") or {})
+            report_lines.append(
+                
+                    f"- {model.get('name') or model.get('saved_model_id')}: "
+                    f"{primary_metric.get('metric_name', comparison.get('metric_name'))}="
+                    f"{primary_metric.get('metric_value', 'n/a')}"
+                
+            )
+        return {
+            "basis": "saved_model_comparison",
+            "comparison": comparison,
+            "report_markdown": "\n".join(report_lines),
+            "summary": "Generated a saved model comparison report.",
+        }
+
+    def route_ml_intent(
+        self,
+        intent_text: str,
+        *,
+        default_project_key: str | None = None,
+        default_dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        routed = analyze_ml_intent(
+            intent_text,
+            default_project_key=default_project_key,
+            default_dataset_name=default_dataset_name,
+        )
+        return self._resolve_routed_ml_intent(routed)
+
+    def preview_run_routed_ml_intent(
+        self,
+        intent_text: str,
+        *,
+        default_project_key: str | None = None,
+        default_dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        routed = self.route_ml_intent(
+            intent_text,
+            default_project_key=default_project_key,
+            default_dataset_name=default_dataset_name,
+        )
+        intent_type = cast(str, routed["intent_type"])
+        if intent_type == "bootstrap_ml_command":
+            return self.preview_run_ml_command(
+                cast(str, routed["project_key"]),
+                cast(str, routed["dataset_name"]),
+                cast(str, routed["command_name"]),
+                target_variable=cast(str | None, routed.get("target_variable")),
+            )
+        if intent_type == "train_latest_ml_task":
+            return self.preview_train_ml_task(
+                cast(str, routed["project_key"]),
+                cast(str, routed["analysis_id"]),
+                cast(str, routed["ml_task_id"]),
+            )
+        if intent_type == "deploy_best_model":
+            return self.preview_deploy_trained_model_to_flow(
+                cast(str, routed["project_key"]),
+                cast(str, routed["analysis_id"]),
+                cast(str, routed["ml_task_id"]),
+                model_id=cast(str | None, routed.get("model_id")),
+                saved_model_name=cast(str | None, routed.get("saved_model_name")),
+            )
+        raise ConfigurationError(
+            "This intent does not map to an executable ML action.",
+            suggested_fix="Route the intent first and use one of the executable intent types.",
+        )
+
+    def run_routed_ml_intent(
+        self,
+        intent_text: str,
+        *,
+        default_project_key: str | None = None,
+        default_dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        routed = self.route_ml_intent(
+            intent_text,
+            default_project_key=default_project_key,
+            default_dataset_name=default_dataset_name,
+        )
+        intent_type = cast(str, routed["intent_type"])
+        if intent_type == "bootstrap_ml_command":
+            return self.run_ml_command(
+                cast(str, routed["project_key"]),
+                cast(str, routed["dataset_name"]),
+                cast(str, routed["command_name"]),
+                target_variable=cast(str | None, routed.get("target_variable")),
+            )
+        if intent_type == "train_latest_ml_task":
+            return self.train_ml_task(
+                cast(str, routed["project_key"]),
+                cast(str, routed["analysis_id"]),
+                cast(str, routed["ml_task_id"]),
+            )
+        if intent_type == "deploy_best_model":
+            return self.deploy_trained_model_to_flow(
+                cast(str, routed["project_key"]),
+                cast(str, routed["analysis_id"]),
+                cast(str, routed["ml_task_id"]),
+                model_id=cast(str | None, routed.get("model_id")),
+                saved_model_name=cast(str | None, routed.get("saved_model_name")),
+            )
+        raise ConfigurationError(
+            "This intent does not map to an executable ML action.",
+            suggested_fix="Use a setup, train latest task or deploy best model style request.",
+        )
+
+    def list_plugin_usages(self, project_key: str) -> list[dict[str, Any]]:
+        project = self._get_project(project_key)
+        raw_usages = self._call_method(project, ("list_plugins_usages",), default=[])
+        if not isinstance(raw_usages, Sequence) or isinstance(raw_usages, (str, bytes)):
+            return []
+        usages: list[dict[str, Any]] = []
+        for raw_usage in raw_usages:
+            normalized = self._normalize_mapping(raw_usage)
+            plugin_usage_bundle = getattr(raw_usage, "plugin_usages", None)
+            usage_objects = (
+                getattr(plugin_usage_bundle, "usages", [])
+                if plugin_usage_bundle
+                else []
+            )
+            normalized_usages: list[dict[str, Any]] = []
+            for usage_object in usage_objects if isinstance(usage_objects, Sequence) else []:
+                usage_mapping = self._normalize_mapping(usage_object)
+                normalized_usages.append(
+                    {
+                        "object_type": usage_mapping.get("objectType")
+                        or usage_mapping.get("object_type")
+                        or self._read_attribute(usage_object, "object_type"),
+                        "object_id": usage_mapping.get("objectId")
+                        or usage_mapping.get("object_id")
+                        or self._read_attribute(usage_object, "object_id"),
+                        "element_kind": usage_mapping.get("elementKind")
+                        or usage_mapping.get("element_kind")
+                        or self._read_attribute(usage_object, "element_kind"),
+                        "element_type": usage_mapping.get("elementType")
+                        or usage_mapping.get("element_type")
+                        or self._read_attribute(usage_object, "element_type"),
+                        "project_key": usage_mapping.get("projectKey")
+                        or usage_mapping.get("project_key")
+                        or self._read_attribute(usage_object, "project_key"),
+                    }
+                )
+            usages.append(
+                {
+                    "plugin_id": normalized.get("pluginId")
+                    or normalized.get("plugin_id")
+                    or self._read_attribute(raw_usage, "plugin_id")
+                    or normalized.get("id"),
+                    "plugin_name": normalized.get("pluginName")
+                    or normalized.get("plugin_name")
+                    or normalized.get("name")
+                    or self._read_attribute(raw_usage, "plugin_id"),
+                    "usage_type": normalized.get("usageType")
+                    or normalized.get("type")
+                    or (
+                        sorted(
+                            {
+                                str(item.get("element_kind"))
+                                for item in normalized_usages
+                                if item.get("element_kind")
+                            }
+                        )
+                    ),
+                    "recipe_names": [
+                        str(item["object_id"])
+                        for item in normalized_usages
+                        if item.get("object_type") == "RECIPE" and item.get("object_id")
+                    ],
+                    "object_usages": normalized_usages,
+                }
+            )
+        return usages
+
+    def generate_scenario_dependency_map(self, project_key: str) -> dict[str, Any]:
+        scenarios = []
+        for scenario in self.list_scenarios(project_key):
+            scenario_id = scenario.get("scenario_id")
+            if not isinstance(scenario_id, str) or not scenario_id:
+                continue
+            scenario_handle = self._get_scenario(project_key, scenario_id)
+            settings = self._normalize_settings_payload(
+                self._get_scenario_settings(scenario_handle)
+            )
+            scenarios.append(
+                {
+                    **scenario,
+                    "steps": settings.get("params", {}).get("steps", [])
+                    if isinstance(settings.get("params"), Mapping)
+                    else [],
+                }
+            )
+        return build_scenario_dependency_map(
+            project_key=project_key,
+            scenarios=scenarios,
+            known_datasets=[
+                str(dataset.get("name"))
+                for dataset in self.list_datasets(project_key)
+                if dataset.get("name")
+            ],
+            known_recipes=[
+                str(recipe.get("name"))
+                for recipe in self.list_recipes(project_key)
+                if recipe.get("name")
+            ],
+        )
+
+    def plan_code_env_updates(self, *, env_name: str | None = None) -> dict[str, Any]:
+        target_env_names = [env_name] if env_name else [
+            str(code_env.get("name"))
+            for code_env in self.list_code_envs()
+            if code_env.get("name")
+        ]
+        diagnoses = [self.code_env_doctor(target_env_name) for target_env_name in target_env_names]
+        return build_code_env_update_plan(diagnoses)
+
+    def generate_production_readiness_report(self, project_key: str) -> dict[str, Any]:
+        return build_production_readiness_report(
+            project_key=project_key,
+            project_summary=self.get_project_summary(project_key),
+            flow_health=self.analyze_flow_health(project_key),
+            scenario_dependency_map=self.generate_scenario_dependency_map(project_key),
+            code_env_update_plan=self.plan_code_env_updates(),
+            plugin_usages=self.list_plugin_usages(project_key),
+            ml_assets={
+                "ml_tasks": len(self.list_ml_tasks(project_key)),
+                "saved_models": len(self.list_saved_models(project_key)),
+            },
+        )
+
+    def generate_cost_performance_report(self, project_key: str) -> dict[str, Any]:
+        return build_cost_performance_report(
+            project_key=project_key,
+            project_summary=self.get_project_summary(project_key),
+            flow_health=self.analyze_flow_health(project_key),
+            scenario_dependency_map=self.generate_scenario_dependency_map(project_key),
+            code_env_update_plan=self.plan_code_env_updates(),
+            plugin_usages=self.list_plugin_usages(project_key),
+            ml_assets={
+                "ml_tasks": len(self.list_ml_tasks(project_key)),
+                "saved_models": len(self.list_saved_models(project_key)),
+            },
+            model_evaluation_store_count=len(self.list_model_evaluation_stores(project_key)),
+        )
+
+    def generate_production_readiness_checklist(self, project_key: str) -> dict[str, Any]:
+        return build_production_readiness_checklist(
+            project_key=project_key,
+            readiness_report=self.generate_production_readiness_report(project_key),
+            cost_performance_report=self.generate_cost_performance_report(project_key),
+            scenario_dependency_map=self.generate_scenario_dependency_map(project_key),
+            code_env_update_plan=self.plan_code_env_updates(),
+            plugin_usages=self.list_plugin_usages(project_key),
+            ml_assets={
+                "ml_tasks": len(self.list_ml_tasks(project_key)),
+                "saved_models": len(self.list_saved_models(project_key)),
+            },
+        )
+
+    def generate_governance_documentation(self, project_key: str) -> dict[str, Any]:
+        project_summary = self.get_project_summary(project_key)
+        readiness_report = self.generate_production_readiness_report(project_key)
+        cost_report = self.generate_cost_performance_report(project_key)
+        checklist = self.generate_production_readiness_checklist(project_key)
+        governance = generate_governance_documentation(
+            project_summary=project_summary,
+            readiness_report=readiness_report,
+            cost_performance_report=cost_report,
+            production_checklist=checklist,
+            plugin_usages=self.list_plugin_usages(project_key),
+            code_env_update_plan=self.plan_code_env_updates(),
+        )
+        return {
+            "markdown": governance["markdown"],
+            "summary": governance["summary"],
+            "readiness": readiness_report.get("readiness"),
+            "checklist_gate": checklist.get("readiness_gate"),
         }
 
     def preview_create_managed_folder(
@@ -2018,6 +2896,18 @@ class DataikuDSSAdapter:
         project = self._get_project(project_key)
         return self._call_method(project, ("get_ml_task",), analysis_id, ml_task_id)
 
+    def _get_saved_model(self, project_key: str, saved_model_id: str) -> Any:
+        project = self._get_project(project_key)
+        return self._call_method(project, ("get_saved_model",), saved_model_id)
+
+    def _get_model_evaluation_store(self, project_key: str, evaluation_store_id: str) -> Any:
+        project = self._get_project(project_key)
+        return self._call_method(
+            project,
+            ("get_model_evaluation_store",),
+            evaluation_store_id,
+        )
+
     def _get_job(self, project_key: str, job_id: str) -> Any:
         project = self._get_project(project_key)
         return self._call_method(project, ("get_job", "getJob"), job_id)
@@ -2593,6 +3483,224 @@ class DataikuDSSAdapter:
             },
             suggested_fix="List ML tasks first and use a valid analysis_id / ml_task_id pair.",
         )
+
+    def _find_saved_model_summary(
+        self,
+        project_key: str,
+        saved_model_id: str,
+    ) -> dict[str, Any]:
+        for saved_model in self.list_saved_models(project_key):
+            if saved_model.get("saved_model_id") == saved_model_id:
+                return saved_model
+        return {
+            "saved_model_id": saved_model_id,
+            "name": saved_model_id,
+        }
+
+    def _find_model_evaluation_store_summary(
+        self,
+        project_key: str,
+        evaluation_store_id: str,
+    ) -> dict[str, Any]:
+        for store in self.list_model_evaluation_stores(project_key):
+            if store.get("evaluation_store_id") == evaluation_store_id:
+                return store
+        return {
+            "evaluation_store_id": evaluation_store_id,
+            "name": evaluation_store_id,
+        }
+
+    def _validate_scoring_recipe_creation(
+        self,
+        project_key: str,
+        *,
+        recipe_name: str,
+        output_dataset_name: str,
+    ) -> None:
+        existing_recipe_names = {
+            str(recipe.get("name"))
+            for recipe in self.list_recipes(project_key)
+            if recipe.get("name")
+        }
+        if recipe_name in existing_recipe_names:
+            raise ConfigurationError(
+                f"Recipe {recipe_name} already exists.",
+                suggested_fix="Provide a different recipe_name.",
+            )
+        existing_dataset_names = {
+            str(dataset.get("name"))
+            for dataset in self.list_datasets(project_key)
+            if dataset.get("name")
+        }
+        if output_dataset_name in existing_dataset_names:
+            raise ConfigurationError(
+                f"Dataset {output_dataset_name} already exists.",
+                suggested_fix="Provide a different output_dataset_name.",
+            )
+
+    def _validate_model_evaluation_creation(
+        self,
+        project_key: str,
+        *,
+        recipe_name: str,
+        evaluation_store_id: str | None,
+        evaluation_store_name: str | None,
+        scored_output_dataset: str,
+        metrics_output_dataset: str,
+    ) -> None:
+        existing_recipe_names = {
+            str(recipe.get("name"))
+            for recipe in self.list_recipes(project_key)
+            if recipe.get("name")
+        }
+        if recipe_name in existing_recipe_names:
+            raise ConfigurationError(
+                f"Recipe {recipe_name} already exists.",
+                suggested_fix="Provide a different recipe_name.",
+            )
+        existing_dataset_names = {
+            str(dataset.get("name"))
+            for dataset in self.list_datasets(project_key)
+            if dataset.get("name")
+        }
+        for dataset_name, field_name in (
+            (scored_output_dataset, "scored_output_dataset"),
+            (metrics_output_dataset, "metrics_output_dataset"),
+        ):
+            if dataset_name in existing_dataset_names:
+                raise ConfigurationError(
+                    f"Dataset {dataset_name} already exists.",
+                    suggested_fix=f"Provide a different {field_name}.",
+                )
+        if evaluation_store_id is None:
+            existing_store_names = {
+                str(store.get("name"))
+                for store in self.list_model_evaluation_stores(project_key)
+                if store.get("name")
+            }
+            if evaluation_store_name in existing_store_names:
+                raise ConfigurationError(
+                    f"Model evaluation store {evaluation_store_name} already exists.",
+                    suggested_fix=(
+                        "Pass evaluation_store_id or use a different "
+                        "evaluation_store_name."
+                    ),
+                )
+
+    def _resolve_model_evaluation_plan(
+        self,
+        project_key: str,
+        saved_model_id: str,
+        evaluation_dataset: str,
+        *,
+        evaluation_store_id: str | None,
+        evaluation_store_name: str | None,
+        recipe_name: str | None,
+        scored_output_dataset: str | None,
+        metrics_output_dataset: str | None,
+        metrics: Sequence[str] | None,
+        run_immediately: bool,
+    ) -> dict[str, Any]:
+        self.get_saved_model_details(project_key, saved_model_id)
+        self._get_dataset(project_key, evaluation_dataset)
+        resolved_recipe_name = recipe_name or f"evaluate_{saved_model_id}_{evaluation_dataset}"
+        resolved_store_name = (
+            evaluation_store_name or f"mes_{saved_model_id}_{evaluation_dataset}"
+        )
+        resolved_scored_output = (
+            scored_output_dataset or f"{evaluation_dataset}_scored_{saved_model_id}"
+        )
+        resolved_metrics_output = (
+            metrics_output_dataset or f"{evaluation_dataset}_metrics_{saved_model_id}"
+        )
+        return {
+            "saved_model_id": saved_model_id,
+            "evaluation_dataset": evaluation_dataset,
+            "evaluation_store_id": evaluation_store_id,
+            "evaluation_store_name": resolved_store_name,
+            "recipe_name": resolved_recipe_name,
+            "scored_output_dataset": resolved_scored_output,
+            "metrics_output_dataset": resolved_metrics_output,
+            "metrics": list(metrics or []),
+            "run_immediately": run_immediately,
+        }
+
+    def _ensure_managed_dataset(
+        self,
+        project_key: str,
+        dataset_name: str,
+        connection_name: str,
+    ) -> None:
+        existing_dataset_names = {
+            str(dataset.get("name"))
+            for dataset in self.list_datasets(project_key)
+            if dataset.get("name")
+        }
+        if dataset_name in existing_dataset_names:
+            return
+        project = self._get_project(project_key)
+        builder = self._call_method(project, ("new_managed_dataset",), dataset_name)
+        self._call_method(builder, ("with_store_into",), connection_name)
+        self._call_method(builder, ("create",), default=None)
+
+    def _resolve_routed_ml_intent(self, routed: dict[str, Any]) -> dict[str, Any]:
+        missing_fields = list(cast(list[str], routed.get("missing_fields", [])))
+        intent_type = cast(str, routed.get("intent_type"))
+        project_key = cast(str | None, routed.get("project_key"))
+        if intent_type in {"train_latest_ml_task", "deploy_best_model"} and project_key is not None:
+            latest_task = self._select_latest_ml_task(project_key)
+            routed["analysis_id"] = latest_task["analysis_id"]
+            routed["ml_task_id"] = latest_task["ml_task_id"]
+            if intent_type == "deploy_best_model":
+                trained_models = self.list_trained_models(
+                    project_key,
+                    cast(str, latest_task["analysis_id"]),
+                    cast(str, latest_task["ml_task_id"]),
+                )
+                selected_model = self._select_best_model(
+                    cast(list[dict[str, Any]], trained_models.get("models", [])),
+                    metric_name=cast(str | None, routed.get("metric_name")),
+                )
+                routed["model_id"] = selected_model.get("model_id")
+                routed["saved_model_name"] = (
+                    f"{latest_task['analysis_id']}_{latest_task['ml_task_id']}_saved_model"
+                )
+        routed["can_execute"] = len(missing_fields) == 0 and intent_type != "unknown"
+        return routed
+
+    def _select_latest_ml_task(self, project_key: str) -> dict[str, Any]:
+        tasks = self.list_ml_tasks(project_key)
+        if not tasks:
+            raise ConfigurationError(
+                f"No Visual ML task is available in project {project_key}.",
+                suggested_fix=(
+                    "Run a bootstrap ML command first, then retrain or deploy "
+                    "from that task."
+                ),
+            )
+        return tasks[-1]
+
+    def _select_best_model(
+        self,
+        models: Sequence[Mapping[str, Any]],
+        *,
+        metric_name: str | None,
+    ) -> Mapping[str, Any]:
+        if not models:
+            raise ConfigurationError(
+                "No trained models are available for this ML task.",
+                suggested_fix="Train the ML task before requesting a deployment.",
+            )
+        comparison_metric = metric_name or self._select_comparison_metric(list(models))
+        ranked_models = sorted(
+            models,
+            key=lambda model: self._metric_sort_value(
+                cast(dict[str, Any], model.get("metrics", {})),
+                comparison_metric,
+            ),
+            reverse=self._metric_prefers_higher(comparison_metric),
+        )
+        return ranked_models[0]
 
     def _validate_prediction_flow_creation(
         self,
@@ -3252,6 +4360,292 @@ class DataikuDSSAdapter:
         return selected_model_id
 
     @staticmethod
+    def _normalize_saved_model_summary(raw_saved_model: Any) -> dict[str, Any]:
+        normalized = DataikuDSSAdapter._normalize_mapping(raw_saved_model)
+        return {
+            "saved_model_id": (
+                normalized.get("id")
+                or normalized.get("savedModelId")
+                or normalized.get("saved_model_id")
+            ),
+            "name": normalized.get("name") or normalized.get("label"),
+            "prediction_type": (
+                normalized.get("predictionType") or normalized.get("prediction_type")
+            ),
+            "active_version_id": (
+                normalized.get("activeVersionId") or normalized.get("active_version_id")
+            ),
+        }
+
+    @staticmethod
+    def _normalize_saved_model_version(raw_version: Any) -> dict[str, Any]:
+        normalized = DataikuDSSAdapter._normalize_mapping(raw_version)
+        return {
+            "version_id": (
+                normalized.get("id")
+                or normalized.get("versionId")
+                or normalized.get("version_id")
+            ),
+            "label": normalized.get("label") or normalized.get("name"),
+            "active": normalized.get("active"),
+            "created_on": normalized.get("createdOn") or normalized.get("created_on"),
+        }
+
+    @staticmethod
+    def _normalize_model_evaluation_store_summary(raw_store: Any) -> dict[str, Any]:
+        normalized = DataikuDSSAdapter._normalize_mapping(raw_store)
+        settings = {}
+        get_settings = getattr(raw_store, "get_settings", None)
+        if callable(get_settings):
+            try:
+                settings = DataikuDSSAdapter._normalize_settings_payload(get_settings())
+            except DataikuCodexError:
+                settings = {}
+        return {
+            "evaluation_store_id": (
+                normalized.get("id")
+                or normalized.get("mesId")
+                or normalized.get("evaluationStoreId")
+                or normalized.get("evaluation_store_id")
+                or DataikuDSSAdapter._read_attribute(raw_store, "evaluation_store_id")
+                or DataikuDSSAdapter._read_attribute(raw_store, "mes_id")
+                or DataikuDSSAdapter._read_attribute(raw_store, "id")
+            ),
+            "name": (
+                normalized.get("name")
+                or normalized.get("label")
+                or settings.get("name")
+                or settings.get("label")
+            ),
+            "object_type": normalized.get("objectType") or "MODEL_EVALUATION_STORE",
+        }
+
+    @staticmethod
+    def _normalize_model_evaluation_summary(raw_evaluation: Any) -> dict[str, Any]:
+        normalized = DataikuDSSAdapter._normalize_mapping(raw_evaluation)
+        return {
+            "evaluation_id": DataikuDSSAdapter._extract_evaluation_id(raw_evaluation),
+            "label": normalized.get("label") or normalized.get("name"),
+            "created_on": normalized.get("createdOn") or normalized.get("created_on"),
+        }
+
+    @staticmethod
+    def _normalize_settings_payload(raw_settings: Any) -> dict[str, Any]:
+        if isinstance(raw_settings, Mapping):
+            return dict(raw_settings)
+        get_raw = getattr(raw_settings, "get_raw", None)
+        if callable(get_raw):
+            try:
+                payload = get_raw()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+            if isinstance(payload, Mapping):
+                return dict(payload)
+        obj_payload = getattr(raw_settings, "obj_payload", None)
+        if isinstance(obj_payload, Mapping):
+            return dict(obj_payload)
+        return DataikuDSSAdapter._normalize_mapping(raw_settings)
+
+    @staticmethod
+    def _normalize_evaluation_full_info(raw_full_info: Any) -> dict[str, Any]:
+        if isinstance(raw_full_info, Mapping):
+            return dict(raw_full_info)
+        get_raw = getattr(raw_full_info, "get_raw", None)
+        if callable(get_raw):
+            try:
+                payload = get_raw()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+            if isinstance(payload, Mapping):
+                return dict(payload)
+        return DataikuDSSAdapter._normalize_mapping(raw_full_info)
+
+    @staticmethod
+    def _extract_saved_model_version_id(raw_version: Any) -> str | None:
+        if raw_version is None:
+            return None
+        if isinstance(raw_version, str):
+            return raw_version
+        normalized = DataikuDSSAdapter._normalize_mapping(raw_version)
+        version_id = normalized.get("id") or normalized.get("versionId")
+        if version_id is not None:
+            return str(version_id)
+        candidate = DataikuDSSAdapter._read_attribute(raw_version, "id")
+        return str(candidate) if candidate is not None else None
+
+    @staticmethod
+    def _extract_evaluation_id(raw_evaluation: Any) -> str | None:
+        get_full_id = getattr(raw_evaluation, "get_full_id", None)
+        if callable(get_full_id):
+            try:
+                full_id = get_full_id()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+            if full_id is not None:
+                return str(full_id)
+        normalized = DataikuDSSAdapter._normalize_mapping(raw_evaluation)
+        evaluation_id = (
+            normalized.get("id")
+            or normalized.get("evaluationId")
+            or normalized.get("fullId")
+            or normalized.get("evaluation_id")
+        )
+        if evaluation_id is not None:
+            return str(evaluation_id)
+        candidate = (
+            DataikuDSSAdapter._read_attribute(raw_evaluation, "id")
+            or DataikuDSSAdapter._read_attribute(raw_evaluation, "evaluation_id")
+            or DataikuDSSAdapter._read_attribute(raw_evaluation, "full_id")
+        )
+        return str(candidate) if candidate is not None else None
+
+    @staticmethod
+    def _normalize_metric_values(raw_metrics: Any) -> dict[str, Any]:
+        get_raw = getattr(raw_metrics, "get_raw", None)
+        if callable(get_raw):
+            try:
+                raw_metrics = get_raw()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+        if isinstance(raw_metrics, Mapping):
+            if "metrics" in raw_metrics and isinstance(raw_metrics.get("metrics"), Mapping):
+                return {
+                    str(metric_name): metric_value
+                    for metric_name, metric_value in cast(
+                        Mapping[Any, Any],
+                        raw_metrics.get("metrics"),
+                    ).items()
+                }
+            if "metrics" in raw_metrics and isinstance(raw_metrics.get("metrics"), Sequence):
+                mapped_metrics: dict[str, Any] = {}
+                for item in cast(Sequence[Any], raw_metrics.get("metrics")):
+                    metric_entry = DataikuDSSAdapter._normalize_metric_entry(item)
+                    if metric_entry is None:
+                        continue
+                    metric_name, metric_value = metric_entry
+                    mapped_metrics[metric_name] = metric_value
+                return mapped_metrics
+            return {
+                str(metric_name): metric_value
+                for metric_name, metric_value in raw_metrics.items()
+                if isinstance(metric_name, str)
+            }
+        if isinstance(raw_metrics, Sequence) and not isinstance(raw_metrics, (str, bytes)):
+            normalized_metrics: dict[str, Any] = {}
+            for item in raw_metrics:
+                metric_entry = DataikuDSSAdapter._normalize_metric_entry(item)
+                if metric_entry is None:
+                    continue
+                metric_name, metric_value = metric_entry
+                normalized_metrics[metric_name] = metric_value
+            return normalized_metrics
+        return {}
+
+    @staticmethod
+    def _normalize_metric_entry(raw_metric: Any) -> tuple[str, Any] | None:
+        if not isinstance(raw_metric, Mapping):
+            return None
+        metric_name: str | None = None
+        metric_descriptor = raw_metric.get("metric")
+        if isinstance(metric_descriptor, str) and metric_descriptor:
+            metric_name = metric_descriptor
+        elif isinstance(metric_descriptor, Mapping):
+            for key in ("metricType", "name", "id"):
+                candidate = metric_descriptor.get(key)
+                if isinstance(candidate, str) and candidate:
+                    metric_name = candidate
+                    break
+        if metric_name is None:
+            meta = raw_metric.get("meta")
+            if isinstance(meta, Mapping):
+                candidate = meta.get("name")
+                if isinstance(candidate, str) and candidate:
+                    metric_name = candidate
+        if metric_name is None:
+            candidate = raw_metric.get("name")
+            if isinstance(candidate, str) and candidate:
+                metric_name = candidate
+        if metric_name is None:
+            return None
+
+        metric_value = raw_metric.get("value")
+        if metric_value is None:
+            last_values = raw_metric.get("lastValues")
+            if isinstance(last_values, Sequence) and not isinstance(last_values, (str, bytes)):
+                metric_value = next(
+                    (
+                        item.get("value")
+                        for item in last_values
+                        if isinstance(item, Mapping) and item.get("value") is not None
+                    ),
+                    None,
+                )
+        return metric_name, DataikuDSSAdapter._coerce_metric_value(metric_value)
+
+    @staticmethod
+    def _coerce_metric_value(raw_value: Any) -> Any:
+        if not isinstance(raw_value, str):
+            return raw_value
+        lowered = raw_value.lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+        try:
+            if "." not in raw_value and "e" not in lowered:
+                return int(raw_value)
+            return float(raw_value)
+        except ValueError:
+            return raw_value
+
+    @staticmethod
+    def _select_primary_metric(metrics: Mapping[str, Any]) -> dict[str, Any] | None:
+        if not metrics:
+            return None
+        preferred_metrics = (
+            "accuracy",
+            "auc",
+            "f1",
+            "precision",
+            "recall",
+            "rmse",
+            "mae",
+        )
+        for metric_name in preferred_metrics:
+            if metric_name in metrics:
+                return {"metric_name": metric_name, "metric_value": metrics[metric_name]}
+        first_metric_name = next(iter(metrics))
+        return {
+            "metric_name": first_metric_name,
+            "metric_value": metrics[first_metric_name],
+        }
+
+    @staticmethod
+    def _select_comparison_metric(models: Sequence[Mapping[str, Any]]) -> str:
+        for preferred_metric in ("accuracy", "auc", "f1", "precision", "recall", "rmse", "mae"):
+            for model in models:
+                metrics = model.get("active_version_metrics") or model.get("metrics") or {}
+                if isinstance(metrics, Mapping) and preferred_metric in metrics:
+                    return preferred_metric
+        return "accuracy"
+
+    @staticmethod
+    def _metric_prefers_higher(metric_name: str) -> bool:
+        lowered = metric_name.lower()
+        return lowered not in {"rmse", "mae", "loss", "mse", "logloss"}
+
+    @staticmethod
+    def _metric_sort_value(metrics: Mapping[str, Any], metric_name: str) -> float:
+        metric_value = metrics.get(metric_name)
+        if isinstance(metric_value, bool):
+            return float(metric_value)
+        if isinstance(metric_value, (int, float)):
+            return float(metric_value)
+        if DataikuDSSAdapter._metric_prefers_higher(metric_name):
+            return float("-inf")
+        return float("inf")
+
+    @staticmethod
     def _extract_schema_columns_count(payload: Mapping[str, Any]) -> int:
         direct_count = payload.get("schemaColumnsCount") or payload.get("schema_columns_count")
         if isinstance(direct_count, int):
@@ -3352,6 +4746,17 @@ class DataikuDSSAdapter:
     def _normalize_mapping(raw_value: Any) -> dict[str, Any]:
         if isinstance(raw_value, Mapping):
             return dict(raw_value)
+        get_raw = getattr(raw_value, "get_raw", None)
+        if callable(get_raw):
+            try:
+                converted = get_raw()
+            except Exception as exc:
+                raise map_exception(exc) from exc
+            if isinstance(converted, Mapping):
+                return dict(converted)
+        obj_payload = getattr(raw_value, "obj_payload", None)
+        if isinstance(obj_payload, Mapping):
+            return dict(obj_payload)
         if hasattr(raw_value, "to_dict"):
             converted = raw_value.to_dict()
             if isinstance(converted, Mapping):

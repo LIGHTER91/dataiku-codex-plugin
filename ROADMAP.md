@@ -54,6 +54,8 @@
 
 ## Version 3.0 - Advanced AI engineering
 
+Delivered in the repository as read-first analyzers and reports exposed through MCP tools and CLI.
+
 - RAG eval runner.
 - chunking comparison runner.
 - FAISS/Weaviate inspector.
@@ -103,8 +105,10 @@
 ## Version 3.5.3 - Scoring and evaluation lifecycle
 
 - create scoring-ready Flow assets from a deployed Visual ML model.
+- create native prediction scoring recipes from saved models.
 - expose model comparison and best-model selection without leaving Codex.
 - generate evaluation reports and reusable validation summaries.
+- create model evaluation stores and evaluation recipes from standardized commands.
 - add command-first score and evaluate steps after bootstrap, train and deploy.
 - keep the workflow centered on native DSS components instead of ad-hoc Python scoring scripts.
 
@@ -118,9 +122,12 @@
 
 ## Version 4.0 - Dataiku platform operations
 
-- code env update planning.
+Delivered in the repository as read-first ops reports exposed through MCP tools and CLI.
+
 - plugin inventory.
 - scenario dependency map.
+- code env update planning.
+- production readiness report.
 - cost/performance monitoring.
 - production readiness checklist.
 - governance documentation generator.
